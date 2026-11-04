@@ -1,0 +1,43 @@
+/** @type {import('tailwindcss').Config} */
+export default {
+  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  theme: {
+    extend: {
+      colors: {
+        obsidian: '#090B0F',
+        graphite: '#11151B',
+        charcoal: '#181E26',
+        elevated: '#202833',
+        amber: '#FFB547',
+        cyan: '#43D9E8',
+        signal: '#72E6A1',
+        violet: '#A78BFA',
+        danger: '#FF647C',
+        hairline: 'rgba(255,255,255,0.08)',
+        hairline2: 'rgba(255,255,255,0.14)',
+      },
+      fontFamily: {
+        display: ['"Space Grotesk"', 'system-ui', 'sans-serif'],
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+      },
+      letterSpacing: { tech: '0.18em', wide2: '0.28em' },
+      borderRadius: { none: '0', sm: '2px', DEFAULT: '3px', md: '4px', lg: '6px' },
+      keyframes: {
+        scanline: { '0%': { transform: 'translateY(-100%)' }, '100%': { transform: 'translateY(2400%)' } },
+        pulseRing: { '0%': { transform: 'scale(1)', opacity: '0.55' }, '100%': { transform: 'scale(2.4)', opacity: '0' } },
+        dash: { to: { strokeDashoffset: '-24' } },
+        blink: { '0%,100%': { opacity: '1' }, '50%': { opacity: '0.25' } },
+        riseIn: { from: { opacity: '0', transform: 'translateY(10px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
+      },
+      animation: {
+        scanline: 'scanline 9s linear infinite',
+        pulseRing: 'pulseRing 1.6s ease-out infinite',
+        dash: 'dash 1s linear infinite',
+        blink: 'blink 1.8s ease-in-out infinite',
+        riseIn: 'riseIn .5s ease-out both',
+      },
+    },
+  },
+  plugins: [],
+}

@@ -1,0 +1,238 @@
+/* Self-hosted typefaces — no external requests, works fully offline. */
+@import '@fontsource/space-grotesk/400.css';
+@import '@fontsource/space-grotesk/500.css';
+@import '@fontsource/space-grotesk/600.css';
+@import '@fontsource/space-grotesk/700.css';
+@import '@fontsource/inter/300.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
+@import '@fontsource/jetbrains-mono/600.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --obsidian: #090b0f;
+  --graphite: #11151b;
+  --charcoal: #181e26;
+  --elevated: #202833;
+  --amber: #ffb547;
+  --cyan: #43d9e8;
+  --signal: #72e6a1;
+  --violet: #a78bfa;
+  --danger: #ff647c;
+  --grid: rgba(255, 255, 255, 0.045);
+  --grid-strong: rgba(67, 217, 232, 0.075);
+}
+
+* { -webkit-tap-highlight-color: transparent; }
+
+html { scroll-behavior: smooth; overflow-x: clip; }
+
+:where(section, h2, h3, [id]) { scroll-margin-top: 76px; }
+
+body {
+  margin: 0;
+  background: var(--obsidian);
+  color: #e7ecf2;
+  font-family: Inter, system-ui, sans-serif;
+  font-weight: 350;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+@layer base {
+  h1, h2, h3, h4 { font-family: 'Space Grotesk', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.02em; }
+}
+
+/* ── Skip link: focusable, off-screen until focused, no negative margin
+      (which would widen the document by 1px) ─────────────────────── */
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  transform: translateY(-250%);
+  transition: transform .18s ease-out;
+}
+.skip-link:focus-visible, .skip-link:focus {
+  transform: translateY(0);
+}
+
+/* ── Technical blueprint grid ─────────────────────────────── */
+.blueprint {
+  background-image:
+    linear-gradient(to right, var(--grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid) 1px, transparent 1px),
+    linear-gradient(to right, var(--grid-strong) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-strong) 1px, transparent 1px);
+  background-size: 28px 28px, 28px 28px, 140px 140px, 140px 140px;
+}
+
+.blueprint-fade {
+  mask-image: radial-gradient(ellipse 110% 85% at 50% 0%, #000 35%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 110% 85% at 50% 0%, #000 35%, transparent 100%);
+}
+
+/* ── Panels: precision-engineered rectangles ──────────────── */
+.panel {
+  background: linear-gradient(180deg, rgba(32, 40, 51, 0.62) 0%, rgba(17, 21, 27, 0.78) 100%);
+  border: 1px solid var(--hairline, rgba(255, 255, 255, 0.08));
+  border-radius: 3px;
+  position: relative;
+}
+.panel-glass {
+  background: linear-gradient(180deg, rgba(32, 40, 51, 0.5) 0%, rgba(9, 11, 15, 0.72) 100%);
+  backdrop-filter: blur(18px) saturate(130%);
+  -webkit-backdrop-filter: blur(18px) saturate(130%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.055);
+}
+
+/* corner registration ticks */
+.ticks::before, .ticks::after {
+  content: '';
+  position: absolute;
+  width: 9px; height: 9px;
+  border-color: rgba(67, 217, 232, 0.5);
+  pointer-events: none;
+}
+.ticks::before { top: 0; left: 0; border-top: 1px solid; border-left: 1px solid; }
+.ticks::after { bottom: 0; right: 0; border-bottom: 1px solid; border-right: 1px solid; }
+
+.hairline-t { border-top: 1px solid rgba(255, 255, 255, 0.08); }
+.hairline-b { border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+
+/* ── Technical labels ─────────────────────────────────────── */
+.tlabel {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: rgba(231, 236, 242, 0.45);
+}
+.tvalue { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+
+/* ── Bottom sheet: must be opaque, or the page behind bleeds through ── */
+.sheet {
+  background: #0c1016;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 -18px 50px -20px rgba(0, 0, 0, 0.95);
+}
+@supports (backdrop-filter: blur(10px)) {
+  .sheet {
+    background: rgba(12, 16, 22, 0.97);
+    backdrop-filter: blur(22px) saturate(130%);
+    -webkit-backdrop-filter: blur(22px) saturate(130%);
+  }
+}
+
+/* ── Controls ─────────────────────────────────────────────── */
+.btn {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 9px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+  background: rgba(32, 40, 51, 0.55);
+  color: #d8e0ea;
+  cursor: pointer;
+  transition: border-color .18s, background .18s, color .18s, box-shadow .18s, transform .12s;
+  display: inline-flex; align-items: center; gap: 7px;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) { border-color: rgba(67, 217, 232, 0.55); color: #fff; background: rgba(67, 217, 232, 0.08); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: 0.32; cursor: not-allowed; }
+.btn-primary {
+  background: linear-gradient(180deg, rgba(255, 181, 71, 0.2), rgba(255, 181, 71, 0.07));
+  border-color: rgba(255, 181, 71, 0.5); color: #ffd79a;
+}
+.btn-primary:hover:not(:disabled) { border-color: var(--amber); background: rgba(255, 181, 71, 0.18); color: #fff3df; box-shadow: 0 0 22px -6px rgba(255, 181, 71, 0.5); }
+.btn-active { border-color: rgba(67, 217, 232, 0.75); color: #baf4fb; background: rgba(67, 217, 232, 0.14); box-shadow: inset 0 0 18px -8px rgba(67, 217, 232, 0.8); }
+.btn-danger:hover:not(:disabled) { border-color: rgba(255, 100, 124, 0.6); color: #ffc3cd; background: rgba(255, 100, 124, 0.1); }
+
+:where(button, a, input, select, [tabindex]):focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+input[type='text'], input[type='number'], select {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  background: rgba(9, 11, 15, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 2px;
+  padding: 7px 9px;
+  color: #e7ecf2;
+  width: 100%;
+}
+input:focus, select:focus { border-color: rgba(67, 217, 232, 0.6); }
+
+input[type='range'] { -webkit-appearance: none; appearance: none; height: 3px; background: rgba(255,255,255,0.14); border-radius: 2px; width: 100%; }
+input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 1px; background: var(--amber); border: 1px solid rgba(0,0,0,0.6); cursor: pointer; }
+input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border-radius: 1px; background: var(--amber); border: none; cursor: pointer; }
+
+/* ── Scrollbars ───────────────────────────────────────────── */
+.scroll-tech::-webkit-scrollbar { width: 7px; height: 7px; }
+.scroll-tech::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.3); }
+.scroll-tech::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border-radius: 0; }
+.scroll-tech::-webkit-scrollbar-thumb:hover { background: rgba(67, 217, 232, 0.4); }
+.scroll-tech { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) rgba(0,0,0,0.3); }
+
+/* ── Scanning line ────────────────────────────────────────── */
+.scan::after {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(180deg, transparent, rgba(67, 217, 232, 0.055) 48%, transparent);
+  height: 4%;
+  animation: scanline 9s linear infinite;
+  pointer-events: none;
+}
+
+.glow-cyan { box-shadow: 0 0 30px -12px rgba(67, 217, 232, 0.55); }
+.text-glow-amber { text-shadow: 0 0 26px rgba(255, 181, 71, 0.45); }
+
+.formula-text {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Grid and flex children default to min-width:auto, which lets a wide child
+   stretch its track past the viewport. Opt every layout child out. */
+.min-w-0-all > * { min-width: 0; }
+
+/* SVG defaults to transform-box: view-box, which would scale this ring about
+   the centre of the whole canvas and fling it away from its node. */
+.pulse-ring {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.graph-canvas { touch-action: none; }
+.graph-canvas text { user-select: none; -webkit-user-select: none; }
+/* Dark halo so node labels stay readable where they cross edges. */
+.graph-canvas text, .node-label {
+  paint-order: stroke fill;
+  stroke: rgba(9, 11, 15, 0.85);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.graph-canvas text.no-halo { stroke: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .scan::after { display: none; }
+}
