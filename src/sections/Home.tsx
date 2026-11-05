@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
 import { ArrowRight, BookOpen, Activity, Diamond, GitBranch, Gauge } from 'lucide-react';
 import { SectionId } from '../components/Shell';
@@ -6,13 +6,14 @@ import { SectionId } from '../components/Shell';
 /* ── Animated hero network ──────────────────────────────────────────────── */
 function HeroGraph() {
   const reduce = useReducedMotion();
+  const [hoveredNode, setHoveredNode] = useState<number | null>(null);
 
   const { nodes, edges, route } = useMemo(() => {
     const nodes = [
-      { x: 90, y: 300 }, { x: 215, y: 165 }, { x: 250, y: 420 }, { x: 370, y: 285 },
-      { x: 420, y: 95 }, { x: 460, y: 495 }, { x: 560, y: 190 }, { x: 600, y: 370 },
-      { x: 720, y: 110 }, { x: 745, y: 475 }, { x: 830, y: 265 }, { x: 950, y: 385 },
-      { x: 990, y: 160 }, { x: 1080, y: 300 },
+      { x: 90, y: 300, name: 'S-WAY' }, { x: 215, y: 165, name: 'N-ARC' }, { x: 250, y: 420, name: 'PORT' }, { x: 370, y: 285, name: 'CENTRAL' },
+      { x: 420, y: 95, name: 'PEAK' }, { x: 460, y: 495, name: 'BAY' }, { x: 560, y: 190, name: 'FORK' }, { x: 600, y: 370, name: 'JUNCTION' },
+      { x: 720, y: 110, name: 'VALLEY' }, { x: 745, y: 475, name: 'RIVER' }, { x: 830, y: 265, name: 'NEXUS' }, { x: 950, y: 385, name: 'EASTGATE' },
+      { x: 990, y: 160, name: 'AIRPORT' }, { x: 1080, y: 300, name: 'TERMINAL' },
     ];
     const edges: [number, number][] = [
       [0, 1], [0, 2], [1, 3], [1, 4], [2, 3], [2, 5], [3, 6], [3, 7], [4, 6], [5, 7],
@@ -26,7 +27,7 @@ function HeroGraph() {
   const routePath = route.map((i, k) => `${k === 0 ? 'M' : 'L'}${nodes[i].x} ${nodes[i].y}`).join(' ');
 
   return (
-    <svg viewBox="0 0 1180 600" className="absolute inset-0 h-full w-full" aria-hidden
+    <svg viewBox="0 0 1180 600" className="absolute inset-0 h-full w-full pointer-events-auto"
       preserveAspectRatio="xMidYMid slice">
       <defs>
         <radialGradient id="heroGlow" cx="50%" cy="40%" r="60%">
@@ -36,19 +37,29 @@ function HeroGraph() {
         <filter id="heroBlur" x="-50%" y="-50%" width="200%" height="200%">
           <feGaussianBlur stdDeviation="4" />
         </filter>
+        <filter id="activeGlow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="6" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
       </defs>
 
       <rect width="1180" height="600" fill="url(#heroGlow)" />
 
-      {edges.map(([a, b], i) => (
-        <motion.line key={i}
-          x1={nodes[a].x} y1={nodes[a].y} x2={nodes[b].x} y2={nodes[b].y}
-          stroke="rgba(67,217,232,0.2)" strokeWidth="1"
-          initial={reduce ? undefined : { pathLength: 0, opacity: 0 }}
-          animate={reduce ? undefined : { pathLength: 1, opacity: 1 }}
-          transition={{ duration: 1.1, delay: 0.25 + i * 0.035, ease: 'easeOut' }}
-        />
-      ))}
+      {edges.map(([a, b], i) => {
+        const isRouteEdge = route.some((n, idx) => (n === a && route[idx + 1] === b) || (n === b && route[idx + 1] === a));
+        return (
+          <motion.line key={i}
+            x1={nodes[a].x} y1={nodes[a].y} x2={nodes[b].x} y2={nodes[b].y}
+            stroke={isRouteEdge ? 'rgba(114,230,161,0.35)' : 'rgba(67,217,232,0.18)'} strokeWidth={isRouteEdge ? '1.5' : '1'}
+            initial={reduce ? undefined : { pathLength: 0, opacity: 0 }}
+            animate={reduce ? undefined : { pathLength: 1, opacity: 1 }}
+            transition={{ duration: 1.1, delay: 0.25 + i * 0.035, ease: 'easeOut' }}
+          />
+        );
+      })}
 
       {/* traced route */}
       <path d={routePath} fill="none" stroke="#72E6A1" strokeWidth="5" opacity="0.25" filter="url(#heroBlur)" />
@@ -60,19 +71,36 @@ function HeroGraph() {
 
       {nodes.map((n, i) => {
         const onRoute = route.includes(i);
+        const isHovered = hoveredNode === i;
         return (
           <motion.g key={i}
             initial={reduce ? undefined : { opacity: 0, scale: 0.4 }}
-            animate={reduce ? undefined : { opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5, delay: 0.1 + i * 0.05 }}
+            animate={reduce ? undefined : { opacity: 1, scale: isHovered ? 1.25 : 1 }}
+            transition={{ duration: 0.3, delay: 0.1 + i * 0.05 }}
+            className="cursor-pointer"
+            onMouseEnter={() => setHoveredNode(i)}
+            onMouseLeave={() => setHoveredNode(null)}
             style={{ transformOrigin: `${n.x}px ${n.y}px` }}>
-            {onRoute && (
-              <motion.circle cx={n.x} cy={n.y} r={10} fill="none" stroke="#72E6A1" strokeWidth="1"
-                animate={reduce ? undefined : { r: [8, 17], opacity: [0.5, 0] }}
-                transition={{ duration: 2.4, repeat: Infinity, delay: i * 0.3 }} />
+            {(onRoute || isHovered) && (
+              <motion.circle cx={n.x} cy={n.y} r={isHovered ? 14 : 10} fill="none"
+                stroke={isHovered ? '#FFB547' : '#72E6A1'} strokeWidth="1.2"
+                animate={reduce ? undefined : { r: isHovered ? [12, 22] : [8, 17], opacity: [0.65, 0] }}
+                transition={{ duration: isHovered ? 1.4 : 2.4, repeat: Infinity, delay: i * 0.2 }} />
             )}
-            <circle cx={n.x} cy={n.y} r={onRoute ? 5.5 : 4}
-              fill={onRoute ? '#72E6A1' : 'rgba(67,217,232,0.5)'} />
+            <circle cx={n.x} cy={n.y} r={isHovered ? 7 : onRoute ? 5.5 : 4}
+              fill={isHovered ? '#FFB547' : onRoute ? '#72E6A1' : 'rgba(67,217,232,0.6)'}
+              filter={isHovered ? 'url(#activeGlow)' : undefined}
+            />
+            {/* Invisible large touch target */}
+            <circle cx={n.x} cy={n.y} r={22} fill="transparent" />
+            {isHovered && (
+              <g pointerEvents="none">
+                <rect x={n.x - 42} y={n.y - 30} width={84} height={20} rx={2} fill="rgba(9,11,15,0.92)" stroke="rgba(255,181,71,0.5)" strokeWidth={1} />
+                <text x={n.x} y={n.y - 17} textAnchor="middle" className="tvalue" fontSize="9" fill="#FFD79A">
+                  {n.name}
+                </text>
+              </g>
+            )}
           </motion.g>
         );
       })}
@@ -121,7 +149,7 @@ export default function Home({ go }: { go: (s: SectionId) => void }) {
                 EXPLORE VISUALIZER <ArrowRight size={14} />
               </button>
               <button className="btn !px-5 !py-3" onClick={() => go('theory')}>
-                <BookOpen size={14} /> UNDERSTAND THE ALGORITHM
+                <BookOpen size={14} /> LEARN THE ALGORITHM
               </button>
             </div>
           </motion.div>

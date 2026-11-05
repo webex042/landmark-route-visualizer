@@ -206,6 +206,15 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
                   ev.stopPropagation();
                   if (s.mode === 'erase') s.deleteEdge(e.id); else s.selectEdge(sel ? null : e.id);
                 }}
+                onDoubleClick={(ev) => {
+                  if (!interactive) return;
+                  ev.stopPropagation();
+                  const nextW = window.prompt(`Set weight for edge ${labelOf(s.graph, e.a)} ↔ ${labelOf(s.graph, e.b)}:`, String(e.weight));
+                  if (nextW !== null) {
+                    const val = parseFloat(nextW);
+                    if (val > 0 && Number.isFinite(val)) s.updateEdgeWeight(e.id, Math.round(val * 100) / 100);
+                  }
+                }}
                 onPointerEnter={() => setHoverEdge(e.id)}
                 onPointerLeave={() => setHoverEdge((h) => (h === e.id ? null : h))}
               />
@@ -282,6 +291,12 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
                 aria-label={`Node ${n.label}${isStart ? ', start' : ''}${isGoal ? ', destination' : ''}${isLandmark ? ', landmark' : ''}${h !== undefined ? `, heuristic ${h}` : ''}`}
                 style={{ cursor: interactive ? 'pointer' : 'default', outline: 'none' }}
                 onPointerDown={(ev) => onNodeDown(ev, n.id)}
+                onDoubleClick={(ev) => {
+                  if (!interactive) return;
+                  ev.stopPropagation();
+                  const nextName = window.prompt(`Rename node "${n.label}" to:`, n.label);
+                  if (nextName && nextName.trim()) s.rename(n.id, nextName.trim());
+                }}
                 onKeyDown={(ev) => {
                   if (!interactive) return;
                   if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); s.selectNode(n.id); s.setInspectNode(n.id); }

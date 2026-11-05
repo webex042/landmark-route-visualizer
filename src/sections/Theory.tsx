@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Play, Pause, SkipBack, SkipForward, RotateCcw, ArrowRight } from 'lucide-react';
 import { Graph, GraphNode, GraphEdge, uid, labelOf } from '../lib/graph';
-import { search } from '../lib/searchEngine';
+import { search, PSEUDOCODE } from '../lib/searchEngine';
 import { HeuristicKind } from '../lib/heuristics';
 import { SectionHead, Panel, Formula, Callout, Chip, Swatch } from '../components/ui';
 import { NODE_COLORS, NodeVisual } from '../state/store';
@@ -122,6 +122,30 @@ function MiniTrace({ kind = 'euclidean' }: { kind?: HeuristicKind }) {
       <div className="panel px-3 py-2.5 bg-black/30 min-h-[92px]">
         <div className="tlabel !text-[9px] mb-1.5 text-amber">{step.title.toUpperCase()}</div>
         <p className="text-[12.5px] leading-relaxed text-white/70">{step.decision}</p>
+      </div>
+
+      <div className="panel px-3 py-2.5 bg-black/40">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="tlabel !text-[9px] text-cyan">SYNCHRONIZED PSEUDOCODE</span>
+          <span className="tvalue text-[9px] text-white/40">STEP {i + 1}</span>
+        </div>
+        <pre className="tvalue text-[10px] leading-[1.65] overflow-x-auto scroll-tech m-0 max-h-[140px]">
+          {PSEUDOCODE.map((line, lineIdx) => {
+            const isLineActive = step.pseudocodeLines.includes(lineIdx);
+            return (
+              <div key={lineIdx}
+                className="flex gap-2 px-1 -mx-1 transition-colors duration-150"
+                style={{
+                  background: isLineActive ? 'rgba(255,181,71,0.15)' : undefined,
+                  borderLeft: `2px solid ${isLineActive ? '#FFB547' : 'transparent'}`,
+                  color: isLineActive ? '#FFD79A' : 'rgba(231,236,242,0.5)',
+                }}>
+                <span className="text-white/20 select-none w-3 text-right shrink-0">{lineIdx + 1}</span>
+                <span className="whitespace-pre">{line}</span>
+              </div>
+            );
+          })}
+        </pre>
       </div>
 
       <div className="flex flex-wrap gap-x-4 gap-y-2">

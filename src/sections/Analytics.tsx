@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Play, FileJson, FileSpreadsheet, Scale } from 'lucide-react';
 import {
@@ -29,6 +29,12 @@ export default function Analytics() {
 
   /* Single-run report for the heuristic currently selected in the workspace. */
   const single = useMemo(() => (valid.ok ? (s.result ?? search(g, s.heuristic)) : null), [g, s.heuristic, s.result, valid.ok]);
+
+  useEffect(() => {
+    if (!s.comparison && valid.ok) {
+      s.runComparison();
+    }
+  }, [s.comparison, valid.ok]);
 
   const bars = useMemo(() => {
     if (!cmp) return [];
