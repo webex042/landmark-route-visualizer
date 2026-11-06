@@ -10,18 +10,29 @@ import { LandmarkTable } from './dijkstra';
 
 export type HeuristicKind = 'zero' | 'euclidean' | 'landmark';
 
-export const HEURISTIC_META: Record<HeuristicKind, { name: string; short: string; color: string; blurb: string }> = {
+export const HEURISTIC_META: Record<HeuristicKind, {
+  name: string; plain: string; oneLiner: string; short: string; color: string; blurb: string;
+}> = {
   zero: {
-    name: 'Zero Heuristic', short: 'h = 0', color: '#FF647C',
-    blurb: 'No information at all. Every frontier node looks equally good, so Greedy Best-First Search degenerates into an uninformed search whose order is decided purely by tie-breaking — it is not Dijkstra’s algorithm, because the accumulated cost g(n) is never consulted.',
+    name: 'Zero Heuristic',
+    plain: 'No guess at all',
+    oneLiner: 'Every place looks equally good. The search wanders.',
+    short: 'h = 0', color: '#FF647C',
+    blurb: 'The guess is always zero, so nothing stands out and the search has no sense of direction. Worth seeing once: it shows how much the guess was really doing. Note this is not Dijkstra’s algorithm — greedy search never looks at the distance already travelled.',
   },
   euclidean: {
-    name: 'Euclidean Heuristic', short: 'straight-line', color: '#43D9E8',
-    blurb: 'Straight-line distance from a node to the destination, converted to cost units. Cheap and informative, but it ignores the network: a node geometrically close to the goal may be a long detour by road.',
+    name: 'Euclidean Heuristic',
+    plain: 'Straight-line guess',
+    oneLiner: 'As the crow flies. Ignores which roads exist.',
+    short: 'straight line', color: '#43D9E8',
+    blurb: 'Measures the direct distance to the destination, in a straight line. Quick and often helpful — but it cannot see the roads. A place just across a river looks close, even when the only bridge is thirty kilometres away.',
   },
   landmark: {
-    name: 'Landmark Heuristic', short: 'ALT bound', color: '#FFB547',
-    blurb: 'Uses exact precomputed shortest-path distances from reference landmarks and the triangle inequality to form a lower bound that respects the real network topology — including detours around obstacles that straight-line distance cannot see.',
+    name: 'Landmark Heuristic',
+    plain: 'Landmark guess',
+    oneLiner: 'Uses real road distances measured from fixed landmarks.',
+    short: 'landmark', color: '#FFB547',
+    blurb: 'Picks a few places as landmarks and measures the real road distance from each one to everywhere else, before the search starts. Comparing those two measurements gives a guess that already knows about rivers, detours and dead ends.',
   },
 };
 

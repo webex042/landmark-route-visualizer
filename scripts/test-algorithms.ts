@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { Graph, addNode, connect, setStart, setGoal, toggleLandmark, validateGraph } from '../src/lib/graph.ts';
 import { dijkstra, optimalPath, LandmarkTable } from '../src/lib/dijkstra.ts';
 import { landmarkBreakdown, makeHeuristic } from '../src/lib/heuristics.ts';
-import { search, compareAll } from '../src/lib/searchEngine.ts';
-import { PRESETS } from '../src/lib/presets.ts';
+import { search, compareAll, compareAlgorithms } from '../src/lib/searchEngine.ts';
+import { PRESETS, randomGraph } from '../src/lib/presets.ts';
+import { buildAdjacency } from '../src/lib/graph.ts';
 
 console.log('================================================================');
 console.log('DEEP FORGE — NAVIGATION LAB: ALGORITHM TEST SUITE');
@@ -201,6 +202,63 @@ test('9. CompareAll executes Zero, Euclidean, and Landmark on same graph', () =>
   assert.equal(cmp.landmark.totalNodes, g.nodes.length);
 
   assert(cmp.landmark.executionTimeMs >= 0, 'Execution time measured');
+});
+
+// ── Test 10: Breadth-First Search finds the fewest-roads route ──────
+test('10. BFS always returns a route with the fewest edges', () => {
+  const levels = (g: Graph) => {
+    const adj = buildAdjacency(g); const d = new Map([[g.startId!, 0]]); const q = [g.startId!];
+    for (let i = 0; i < q.length; i++) for (const { to } of adj.get(q[i])!) if (!d.has(to)) { d.set(to, d.get(q[i])! + 1); q.push(to); }
+    return d;
+  };
+  const graphs: Graph[] = PRESETS.map((p) => p.make());
+  for (let i = 0; i < 120; i++) graphs.push(randomGraph(4 + (i % 28), (i % 7) / 5, i % 4));
+  for (const g of graphs) {
+    const r = search(g, 'landmark', 'bfs');
+    const L = levels(g);
+    assert.equal(r.success, L.has(g.goalId!), 'BFS succeeds exactly when the goal is reachable');
+    if (!r.success) continue;
+    assert.equal(r.pathEdgeCount, L.get(g.goalId!), 'BFS route uses the minimum number of edges');
+    assert.equal(r.usesFewestEdges, true);
+    assert.equal(r.path[0], g.startId);
+    assert.equal(r.path[r.path.length - 1], g.goalId);
+  }
+});
+
+// ── Test 11: BFS explores strictly level by level, FIFO ────────────
+test('11. BFS dequeues in non-decreasing depth and never re-queues', () => {
+  for (let i = 0; i < 80; i++) {
+    const g = randomGraph(6 + (i % 24), 0.3 + (i % 5) / 5, 1);
+    const r = search(g, 'zero', 'bfs');
+    const order = r.steps.filter((s) => s.phase === 'select').map((s) => s.depth);
+    assert(order.every((d, k) => k === 0 || d >= order[k - 1]), `level order violated: ${order.join(',')}`);
+    for (const st of r.steps) {
+      const ds = st.frontier.map((f) => f.depth);
+      assert(ds.every((d, k) => k === 0 || d >= ds[k - 1]), 'queue is not FIFO-ordered by depth');
+      assert(ds.length === 0 || ds[ds.length - 1] - ds[0] <= 1, 'queue spans more than two levels');
+    }
+    const queued = r.steps.flatMap((s) => s.neighbours.filter((n) => n.status === 'added').map((n) => n.nodeId));
+    assert.equal(new Set(queued).size, queued.length, 'a node was enqueued twice');
+  }
+});
+
+// ── Test 12: BFS never consults the heuristic ──────────────────────
+test('12. BFS ignores the heuristic completely', () => {
+  const g = PRESETS.find((p) => p.key === 'city')!.make();
+  const a = search(g, 'zero', 'bfs'), b = search(g, 'landmark', 'bfs'), c = search(g, 'euclidean', 'bfs');
+  assert.equal(a.heuristicEvals + b.heuristicEvals + c.heuristicEvals, 0, 'no heuristic evaluations');
+  assert.deepEqual(a.path, b.path, 'heuristic choice cannot change a BFS route');
+  assert.deepEqual(b.path, c.path);
+  assert.equal(a.steps.length, b.steps.length);
+});
+
+// ── Test 13: fewest roads is not the same as shortest distance ────
+test('13. BFS minimises edge count, not total weight', () => {
+  const cmp = compareAlgorithms(PRESETS.find((p) => p.key === 'city')!.make());
+  assert(cmp.bfs.success && cmp.gbfs.success);
+  assert(cmp.bfs.pathCost > (cmp.bfs.optimalCost ?? Infinity) - 1e-9, 'route cost is at least the optimum');
+  assert.equal(cmp.bfs.pathEdgeCount, cmp.bfs.fewestEdges, 'BFS hits the edge-count optimum');
+  assert(cmp.bfs.isOptimal === false, 'on City roads the fewest-roads route is not the cheapest');
 });
 
 console.log('\n================================================================');

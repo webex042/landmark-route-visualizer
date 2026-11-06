@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, X, RefreshCw, Trophy, Target } from 'lucide-react';
 import { Graph, labelOf, degree } from '../lib/graph';
@@ -7,7 +7,7 @@ import { search, SearchResult } from '../lib/searchEngine';
 import { LandmarkTable, optimalPath } from '../lib/dijkstra';
 import { landmarkBreakdown } from '../lib/heuristics';
 import { HEURISTIC_META, HeuristicKind } from '../lib/heuristics';
-import { Panel, SectionHead, Chip, Callout, Metric } from '../components/ui';
+import { Panel, SectionHead, Callout } from '../components/ui';
 import { NODE_COLORS } from '../state/store';
 
 /* ===========================================================================
@@ -29,6 +29,8 @@ interface Question {
   colors?: Record<string, string>;
   hLabels?: Record<string, number>;
   frontier?: { label: string; h: number }[];
+  /** 'queue' shows the chips as a Breadth-First queue (ring numbers). */
+  frontierMode?: 'queue' | 'guess';
 }
 
 const shuffle = <T,>(arr: T[]): T[] => {
@@ -68,11 +70,11 @@ function qDegree(): Question {
   const d = degree(graph, node.id);
   const { options, answer } = buildOptions(String(d), graph.nodes.slice(0, 5).map((n) => String(degree(graph, n.id))));
   return {
-    level: 'beginner', topic: 'Nodes and edges',
-    prompt: `In the network below, how many edges are connected to node ${node.label}?`,
+    level: 'beginner', topic: 'Places and roads',
+    prompt: `On the map below, how many roads lead out of ${node.label}?`,
     options, answer, graph,
     colors: { [node.id]: '#FFB547' },
-    explanation: `Node ${node.label} has ${d} edge(s). The number of edges touching a node is called its degree, and it is exactly the set of neighbours the algorithm can generate when it expands that node.`,
+    explanation: `${node.label} has ${d} road(s). That is exactly the set of places the algorithm can discover when it looks around from there.`,
   };
 }
 
@@ -87,14 +89,14 @@ function qSmallestH(): Question {
   if (chosen.length < 4) return qDegree();
   const best = chosen.reduce((lo, c) => (c.h < lo.h ? c : lo));
   if (chosen.filter((c) => c.h === best.h).length > 1) return qDegree();
-  const options = chosen.map((c) => `${c.n.label}  (h = ${c.h})`);
+  const options = chosen.map((c) => `${c.n.label} — ${c.h} to go`);
   return {
-    level: 'beginner', topic: 'Heuristic values',
-    prompt: `Greedy Best-First Search is about to choose from these four nodes. Which one would it select?`,
-    options, answer: options.indexOf(`${best.n.label}  (h = ${best.h})`),
+    level: 'beginner', topic: 'Reading the guesses',
+    prompt: `The algorithm is about to choose between these four places. Which one does it pick?`,
+    options, answer: options.indexOf(`${best.n.label} — ${best.h} to go`),
     hLabels: Object.fromEntries(chosen.map((c) => [c.n.id, c.h])),
     graph, colors: Object.fromEntries(chosen.map((c) => [c.n.id, NODE_COLORS.frontier])),
-    explanation: `${best.n.label} has the smallest heuristic value (h = ${best.h}), and Greedy Best-First Search ranks the frontier by h alone — f(n) = h(n). The cost already spent getting to each node plays no part in this decision.`,
+    explanation: `${best.n.label} has the smallest guess (${best.h} left to go), and that is the only thing this algorithm looks at. How far it already travelled to reach each one makes no difference.`,
   };
 }
 
@@ -111,12 +113,12 @@ function qNextSelection(): Question {
   const correct = labelOf(graph, sel);
   if (!options.includes(correct)) options[0] = correct;
   return {
-    level: 'beginner', topic: 'Predict the next node',
-    prompt: `The frontier currently holds the nodes listed below. Which node does the algorithm remove and examine next?`,
+    level: 'beginner', topic: 'What comes next',
+    prompt: `The waiting list currently holds the places below. Which one comes off next?`,
     options, answer: options.indexOf(correct),
     frontier: frontier.map((f) => ({ label: f.label, h: f.h })),
     graph, colors: Object.fromEntries(prev.frontier.map((f) => [f.nodeId, NODE_COLORS.frontier])),
-    explanation: `The frontier is a priority queue ordered by h(n), so the node with the smallest heuristic — ${correct} with h = ${sorted[0].h} — comes out first. Ties would be broken deterministically by node label.`,
+    explanation: `The waiting list is always sorted by the guess, smallest first — so ${correct}, with ${sorted[0].h} left to go, comes off next. If two were equal, the name would decide.`,
   };
 }
 
@@ -131,10 +133,10 @@ function qLandmarkMath(): Question {
   const correct = Math.abs(dLt - dLv);
   const { options, answer } = buildOptions(String(correct), [String(dLt + dLv), String(Math.round((dLt + dLv) / 2)), String(Math.min(dLt, dLv)), String(Math.max(dLt, dLv))]);
   return {
-    level: 'intermediate', topic: 'Landmark heuristic calculation',
-    prompt: `Landmark ${labelOf(graph, L)} is at shortest-path distance ${dLv} from node ${v.label} and ${dLt} from the destination ${labelOf(graph, graph.goalId)}. What landmark heuristic value does this give for ${v.label}?`,
+    level: 'intermediate', topic: 'Working out a landmark guess',
+    prompt: `Landmark ${labelOf(graph, L)} is ${dLv} away from ${v.label} by road, and ${dLt} away from the destination ${labelOf(graph, graph.goalId)}. What guess does that give for ${v.label}?`,
     options, answer,
-    explanation: `h_L(v,t) = |d(L,t) − d(L,v)| = |${dLt} − ${dLv}| = ${correct}. The absolute difference is taken because the bound holds in either direction on an undirected graph. Adding the distances, or averaging them, would not be a lower bound on the remaining distance.`,
+    explanation: `Take the difference between the two measurements and ignore the minus sign: |${dLt} − ${dLv}| = ${correct}. Adding them or averaging them would not be safe — only the difference is guaranteed never to overshoot.`,
   };
 }
 
@@ -147,11 +149,11 @@ function qFrontierUpdate(): Question {
   const { options, answer } = buildOptions(String(added), [String(st.neighbours.length), String(Math.max(0, added - 1)), String(added + 1), String(st.neighbours.length - added)]);
   const skipped = st.neighbours.filter((n) => n.status !== 'added');
   return {
-    level: 'intermediate', topic: 'Frontier updates',
-    prompt: `Node ${labelOf(graph, st.currentId!)} is being expanded. It has ${st.neighbours.length} neighbour(s): ${st.neighbours.map((n) => `${labelOf(graph, n.nodeId)} (${n.status === 'added' ? 'not yet seen' : n.status === 'already-explored' ? 'already explored' : 'already in the frontier'})`).join(', ')}. How many new nodes enter the frontier?`,
+    level: 'intermediate', topic: 'Updating the waiting list',
+    prompt: `We are looking around from ${labelOf(graph, st.currentId!)}. It connects to ${st.neighbours.length} place(s): ${st.neighbours.map((n) => `${labelOf(graph, n.nodeId)} (${n.status === 'added' ? 'new' : n.status === 'already-explored' ? 'already checked' : 'already waiting'})`).join(', ')}. How many join the waiting list?`,
     options, answer,
     graph, colors: { [st.currentId!]: NODE_COLORS.current, ...Object.fromEntries(st.neighbours.map((n) => [n.nodeId, n.status === 'added' ? NODE_COLORS.frontier : NODE_COLORS.explored])) },
-    explanation: `${added} neighbour(s) are newly generated and pushed into the frontier.${skipped.length ? ` ${skipped.map((n) => labelOf(graph, n.nodeId)).join(', ')} ${skipped.length === 1 ? 'is' : 'are'} skipped — a node already explored or already queued is not added again, which is what prevents the search from looping.` : ''}`,
+    explanation: `${added} place(s) are new, so they join the waiting list.${skipped.length ? ` ${skipped.map((n) => labelOf(graph, n.nodeId)).join(', ')} ${skipped.length === 1 ? 'is' : 'are'} skipped — anything already checked or already waiting is never added twice, and that is what stops the search going round in circles.` : ''}`,
   };
 }
 
@@ -162,14 +164,14 @@ function qExpansionOrder(): Question {
   const correct = String(result.nodesExpanded);
   const { options, answer } = buildOptions(correct, [String(graph.nodes.length), String(result.nodesGenerated), String(result.nodesVisited), String(result.nodesExpanded + 2)]);
   return {
-    level: 'intermediate', topic: 'Node expansion',
-    prompt: `Running Greedy Best-First Search with the landmark heuristic on this ${graph.nodes.length}-node network, the route found was ${result.path.map((id) => labelOf(graph, id)).join(' → ')}. How many nodes were actually expanded?`,
+    level: 'intermediate', topic: 'Counting the work',
+    prompt: `Searching this ${graph.nodes.length}-place map with the landmark guess found the route ${result.path.map((id) => labelOf(graph, id)).join(' → ')}. How many places did the algorithm actually check?`,
     options, answer,
     graph, colors: Object.fromEntries([
       ...result.steps[result.steps.length - 1].explored.map((id) => [id, NODE_COLORS.explored] as const),
       ...result.path.map((id) => [id, NODE_COLORS.path] as const),
     ]),
-    explanation: `${result.nodesExpanded} nodes were expanded: every node removed from the frontier and had its neighbours generated. The destination is removed from the frontier too (${result.nodesVisited} visited in total) but it is never expanded, because the search stops the moment it is selected. ${result.nodesGenerated} nodes were generated into the frontier altogether.`,
+    explanation: `${result.nodesExpanded} places were checked — taken off the waiting list and looked around from. The destination comes off the list too (${result.nodesVisited} in total), but we never look around from it, because the search stops the moment it is picked. Altogether ${result.nodesGenerated} places were found.`,
   };
 }
 
@@ -179,35 +181,35 @@ function qCompareHeuristics(): Question {
   const kinds: HeuristicKind[] = ['zero', 'euclidean', 'landmark'];
   const min = Math.min(...kinds.map((k) => runs[k].nodesExpanded));
   const winners = kinds.filter((k) => runs[k].nodesExpanded === min);
-  const correct = winners.length > 1 ? 'Two or more of them tie' : HEURISTIC_META[winners[0]].name;
-  const options = shuffle([...kinds.map((k) => HEURISTIC_META[k].name), 'Two or more of them tie'])
+  const correct = winners.length > 1 ? 'Two or more of them tie' : HEURISTIC_META[winners[0]].plain;
+  const options = shuffle([...kinds.map((k) => HEURISTIC_META[k].plain), 'Two or more of them tie'])
     .filter((o, i, a) => a.indexOf(o) === i).slice(0, 4);
   if (!options.includes(correct)) options[3] = correct;
   return {
-    level: 'advanced', topic: 'Comparing strategies',
-    prompt: `All three heuristics were run on this network from ${labelOf(graph, graph.startId)} to ${labelOf(graph, graph.goalId)}. Expansions: zero heuristic ${runs.zero.nodesExpanded}, straight-line ${runs.euclidean.nodesExpanded}, landmark ${runs.landmark.nodesExpanded}. Which did the least work?`,
+    level: 'advanced', topic: 'Comparing the methods',
+    prompt: `All three guessing methods searched this map from ${labelOf(graph, graph.startId)} to ${labelOf(graph, graph.goalId)}. Places checked: no guess ${runs.zero.nodesExpanded}, straight-line ${runs.euclidean.nodesExpanded}, landmark ${runs.landmark.nodesExpanded}. Which did the least work?`,
     options, answer: options.indexOf(correct),
     graph,
-    explanation: `${correct} expanded the fewest nodes (${min}). A better-informed heuristic usually explores less, because it keeps pointing the frontier towards the destination. Note what this does not tell you: route costs here were ${kinds.map((k) => `${HEURISTIC_META[k].short} = ${runs[k].success ? runs[k].pathCost : 'no route'}`).join(', ')} against a true optimum of ${runs.landmark.optimalCost}. Less work does not mean a better route.`,
+    explanation: `${correct} checked the fewest places (${min}). A better guess usually means less work, because it keeps pointing the search at the destination. But notice what that does not tell you: the route lengths here were ${kinds.map((k) => `${HEURISTIC_META[k].plain} ${runs[k].success ? runs[k].pathCost : 'no route'}`).join(', ')}, against a shortest possible of ${runs.landmark.optimalCost}. Less work does not mean a shorter route.`,
   };
 }
 
 function qSuboptimality(): Question {
   const graph = PRESETS.find((p) => p.key === 'trap')!.make();
   const r = search(graph, 'landmark');
-  const correct = 'Rank the frontier by f(n) = g(n) + h(n) instead';
+  const correct = 'Also count the distance already travelled, not just the guess';
   const options = [
     correct,
-    'Add more landmarks to sharpen the heuristic',
+    'Add more landmarks to sharpen the guess',
     'Use straight-line distance instead of landmarks',
-    'Expand neighbours in the opposite order',
+    'Look around from places in the opposite order',
   ];
   return {
     level: 'advanced', topic: 'Why greedy search fails',
-    prompt: `On this network the landmark heuristic is exact — h(v) equals the true remaining distance for every node. Greedy Best-First Search still returned a route costing ${r.pathCost} when one costing ${r.optimalCost} exists. What would actually fix this?`,
+    prompt: `On this map the guess is perfect — it equals the real distance left, everywhere. The algorithm still returned a route costing ${r.pathCost} when one costing ${r.optimalCost} exists. What would actually fix it?`,
     options, answer: 0,
     graph, colors: Object.fromEntries(r.path.map((id) => [id, NODE_COLORS.path])),
-    explanation: `Ranking by f(n) = g(n) + h(n) — that is A* search — would find the cheaper route, because it accounts for the cost already paid. A sharper heuristic cannot help here: the heuristic is already perfect. The failure is not bad estimation, it is the evaluation function. Greedy search committed to ${labelOf(graph, r.path[1] ?? '')} because it sits closest to the goal, ignoring the expensive edge it took to get there.`,
+    explanation: `Adding the distance already travelled to the guess — that is A* search — finds the cheaper route. A better guess cannot help here, because the guess is already perfect. The problem is not the estimate, it is what the algorithm does with it: greedy search went to ${labelOf(graph, r.path[1] ?? '')} because it sits closest to the destination, ignoring the expensive road it took to get there.`,
   };
 }
 
@@ -219,32 +221,127 @@ function qAdmissibility(): Question {
   const h = landmarkBreakdown(table, node.id, graph.goalId).value;
   const truth = optimalPath(graph, node.id, graph.goalId)?.cost;
   if (truth === undefined) return qSuboptimality();
-  const correct = 'It is a valid lower bound, so the search stays well informed';
+  const correct = 'The guess is safe — it never claims the journey is shorter than it is';
   const options = [
     correct,
-    'It overestimates, so the heuristic is inadmissible here',
-    'It equals the true cost, so the search must be optimal',
-    'It tells us nothing, because landmarks ignore edge weights',
+    'The guess is too big, so it cannot be trusted here',
+    'The guess is exactly right, so the route must be the shortest',
+    'It tells us nothing, because landmarks ignore road lengths',
   ];
   return {
-    level: 'advanced', topic: 'Search behaviour',
-    prompt: `At node ${node.label} the landmark heuristic estimates h = ${h}, while the true remaining cost to ${labelOf(graph, graph.goalId)} is ${truth}. What does that tell you?`,
+    level: 'advanced', topic: 'Is the guess safe?',
+    prompt: `At ${node.label} the landmark guess says ${h} left to go, while the real distance to ${labelOf(graph, graph.goalId)} is ${truth}. What does that tell you?`,
     options, answer: 0,
     graph, colors: { [node.id]: NODE_COLORS.current, [graph.goalId]: NODE_COLORS.goal },
-    explanation: `${h} ≤ ${truth}, so the estimate never promises more than the network can deliver — that is exactly what admissibility means, and the landmark bound guarantees it on an undirected graph. The gap of ${Math.round((truth - h) * 100) / 100} is how much information the heuristic is still missing. Note that admissibility does not make Greedy Best-First Search optimal; it only makes the estimate trustworthy as a bound. Landmarks are computed from shortest-path distances, so they very much do use edge weights.`,
+    explanation: `${h} is less than or equal to ${truth}, so the guess never understates how far there is to go. That is what makes it safe. The gap of ${Math.round((truth - h) * 100) / 100} is how much the guess is still missing. A safe guess does not make greedy search find the shortest route though — it only makes the number trustworthy. And landmarks are measured along real roads, so they very much do use road lengths.`,
+  };
+}
+
+
+/* ── Breadth-First questions — the project's main topic ─────────────────── */
+
+function bfsGraph(): { graph: Graph; result: SearchResult } {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const graph = randomGraph(7 + Math.floor(Math.random() * 4), 0.5 + Math.random() * 0.5, 1 + Math.floor(Math.random() * 2));
+    const result = search(graph, 'landmark', 'bfs');
+    if (result.success && result.steps.some((st) => st.frontier.length >= 3)) return { graph, result };
+  }
+  const graph = PRESETS[0].make();
+  return { graph, result: search(graph, 'landmark', 'bfs') };
+}
+
+function qBfsNextOut(): Question {
+  const { graph, result } = bfsGraph();
+  const st = result.steps.find((x) => x.phase === 'expand' && x.frontier.length >= 3);
+  if (!st) return qDegree();
+  const queue = st.frontier.slice(0, 4);
+  const correct = labelOf(graph, queue[0].nodeId);
+  const options = shuffle(queue.map((f) => labelOf(graph, f.nodeId)));
+  return {
+    level: 'beginner', topic: 'How a queue works',
+    prompt: `Breadth-First Search has this queue, in the order the places were added. Which place comes out next?`,
+    options, answer: options.indexOf(correct),
+    frontier: queue.map((f, i) => ({ label: `${i + 1}. ${labelOf(graph, f.nodeId)}`, h: f.depth })),
+    frontierMode: 'queue',
+    graph, colors: Object.fromEntries(queue.map((f) => [f.nodeId, NODE_COLORS.frontier])),
+    explanation: `${correct} was added first, so it comes out first — first in, first out. Breadth-First Search does not compare the places or look at any guess; the order they were found is the only thing that decides.`,
+  };
+}
+
+function qBfsRing(): Question {
+  const { graph, result } = bfsGraph();
+  const last = result.steps[result.steps.length - 1];
+  const depth = new Map<string, number>([[graph.startId!, 0]]);
+  for (let pass = 0; pass < graph.nodes.length; pass++) {
+    for (const [c, par] of Object.entries(last.parents)) if (!depth.has(c) && depth.has(par)) depth.set(c, depth.get(par)! + 1);
+  }
+  const candidates = [...depth.entries()].filter(([id, d]) => d >= 2 && id !== graph.goalId);
+  if (!candidates.length) return qBfsNextOut();
+  const [id, d] = pick(candidates);
+  const { options, answer } = buildOptions(String(d), [String(d - 1), String(d + 1), String(d + 2), '1']);
+  return {
+    level: 'beginner', topic: 'Rings',
+    prompt: `Breadth-First Search starts at ${labelOf(graph, graph.startId)}. How many roads away from the start is ${labelOf(graph, id)} — which ring is it in?`,
+    options, answer,
+    graph, colors: { [id]: NODE_COLORS.current },
+    explanation: `${labelOf(graph, id)} is in ring ${d}: the fewest roads you need to get there from the start is ${d}. Breadth-First Search reaches every place in ring ${d - 1} before it reaches any place in ring ${d}.`,
+  };
+}
+
+function qBfsFewest(): Question {
+  const { graph, result } = bfsGraph();
+  const n = result.pathEdgeCount;
+  const correct = 'No — Breadth-First Search always finds the fewest roads';
+  const options = shuffle([
+    correct,
+    'Yes — it often misses shorter routes',
+    'Only if there are landmarks on the map',
+    'It depends on the landmark guess',
+  ]);
+  return {
+    level: 'intermediate', topic: 'What Breadth-First guarantees',
+    prompt: `Breadth-First Search found a route from ${labelOf(graph, graph.startId)} to ${labelOf(graph, graph.goalId)} using ${n} roads: ${result.path.map((id) => labelOf(graph, id)).join(' → ')}. Could another route use fewer roads?`,
+    options, answer: options.indexOf(correct),
+    graph, colors: Object.fromEntries(result.path.map((id) => [id, NODE_COLORS.path])),
+    explanation: `Breadth-First Search checks every place 1 road away before any place 2 roads away, and so on — so the first time it reaches the destination, it has used the fewest roads possible. It ignores landmarks and guesses entirely. What it does not promise is the shortest distance: ${result.isOptimal ? 'here the fewest-roads route also happens to be the shortest.' : `this route is ${result.pathCost} long, but the shortest is ${result.optimalCost}.`}`,
+  };
+}
+
+function qBfsVsGuess(): Question {
+  const { graph } = bfsGraph();
+  const b = search(graph, 'landmark', 'bfs'), gr = search(graph, 'landmark', 'gbfs');
+  const correct = b.nodesExpanded > gr.nodesExpanded
+    ? 'The guess pointed the search towards the destination, so it checked fewer places'
+    : b.nodesExpanded < gr.nodesExpanded
+      ? 'The guess led the search the wrong way, so it checked more places'
+      : 'Both checked the same number of places on this map';
+  const options = shuffle([
+    'The guess pointed the search towards the destination, so it checked fewer places',
+    'The guess led the search the wrong way, so it checked more places',
+    'Both checked the same number of places on this map',
+    'Breadth-First Search also uses the landmark guess, so they are identical',
+  ]);
+  return {
+    level: 'advanced', topic: 'Breadth-First against the guess',
+    prompt: `On this map, Breadth-First Search checked ${b.nodesExpanded} places. Best-First Search with the landmark guess checked ${gr.nodesExpanded}. Which statement is true?`,
+    options, answer: options.indexOf(correct),
+    graph,
+    explanation: `${correct}. Breadth-First Search spreads out evenly in every direction because it never looks at a guess. Best-First Search follows the landmark guess, which usually steers it straight at the destination. Routes: Breadth-First ${b.pathEdgeCount} roads / length ${b.pathCost}; Best-First ${gr.pathEdgeCount} roads / length ${gr.pathCost}.`,
   };
 }
 
 const GENERATORS: Record<Level, (() => Question)[]> = {
-  beginner: [qDegree, qSmallestH, qNextSelection],
-  intermediate: [qLandmarkMath, qFrontierUpdate, qExpansionOrder],
-  advanced: [qCompareHeuristics, qSuboptimality, qAdmissibility],
+  /* Breadth-First questions are listed twice so they come up more often —
+     it is the main topic. The rest cover the landmark guess. */
+  beginner: [qBfsNextOut, qBfsNextOut, qBfsRing, qDegree, qSmallestH, qNextSelection],
+  intermediate: [qBfsFewest, qBfsFewest, qLandmarkMath, qFrontierUpdate, qExpansionOrder],
+  advanced: [qBfsVsGuess, qBfsVsGuess, qCompareHeuristics, qSuboptimality, qAdmissibility],
 };
 
 const LEVEL_INFO: Record<Level, { label: string; blurb: string; color: string }> = {
-  beginner: { label: 'BEGINNER', blurb: 'Read a network, read heuristic values, predict the next selection.', color: '#72E6A1' },
-  intermediate: { label: 'INTERMEDIATE', blurb: 'Compute landmark estimates, predict frontier updates, count expansions.', color: '#43D9E8' },
-  advanced: { label: 'ADVANCED', blurb: 'Compare strategies, judge admissibility, diagnose why greedy search goes wrong.', color: '#FFB547' },
+  beginner: { label: 'Beginner', blurb: 'How the queue works, rings, and reading the map.', color: '#72E6A1' },
+  intermediate: { label: 'Intermediate', blurb: 'What Breadth-First guarantees, and working out landmark guesses.', color: '#43D9E8' },
+  advanced: { label: 'Advanced', blurb: 'Breadth-First against the guess, and why a guess can mislead.', color: '#FFB547' },
 };
 
 /* ── Question graph renderer ─────────────────────────────────────────────── */
@@ -252,37 +349,66 @@ function QuestionGraph({ q }: { q: Question }) {
   const g = q.graph!;
   const byId = new Map(g.nodes.map((n) => [n.id, n]));
   const xs = g.nodes.map((n) => n.x), ys = g.nodes.map((n) => n.y);
-  const pad = 46;
-  const vb = `${Math.min(...xs) - pad} ${Math.min(...ys) - pad} ${Math.max(...xs) - Math.min(...xs) + pad * 2} ${Math.max(...ys) - Math.min(...ys) + pad * 2}`;
+  const pad = 54;
+  const x0 = Math.min(...xs) - pad, y0 = Math.min(...ys) - pad;
+  let w = Math.max(...xs) - Math.min(...xs) + pad * 2;
+  let h0 = Math.max(...ys) - Math.min(...ys) + pad * 2;
+  /* Grow the shorter side to the panel's shape before rendering. Without
+     this a tall, narrow network gets letterboxed into a thin strip and its
+     labels shrink with it — which is what made these questions hard to
+     read at a glance. */
+  const TARGET = 2.1;
+  const cx = x0 + w / 2, cy = y0 + h0 / 2;
+  if (w / h0 < TARGET) w = h0 * TARGET; else h0 = w / TARGET;
+  const vb = `${cx - w / 2} ${cy - h0 / 2} ${w} ${h0}`;
+  /* Label sizes are quoted in real pixels and converted, so they stay the
+     same whatever the size of the network behind them. */
+  const f = (px: number) => px * (w / 780);
 
   return (
-    <svg viewBox={vb} className="w-full block bg-black/30" style={{ height: 'clamp(190px,30vw,270px)' }} role="img" aria-label="Question network">
+    <svg viewBox={vb} className="w-full block graph-canvas" style={{ height: 'clamp(230px,30vw,300px)' }}
+      role="img" aria-label="The map for this question">
       {g.edges.map((e) => {
         const a = byId.get(e.a), b = byId.get(e.b);
         if (!a || !b) return null;
+        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
         return (
           <g key={e.id}>
-            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="rgba(255,255,255,0.16)" strokeWidth="1.4" />
-            <text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2 - 3} textAnchor="middle" className="tvalue" fontSize="10"
-              fill="rgba(231,236,242,0.45)">{e.weight}</text>
+            <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="rgba(255,255,255,0.22)" strokeWidth={f(1.6)} />
+            <rect x={mx - f(15)} y={my - f(10)} width={f(30)} height={f(20)} rx={f(3)}
+              fill="rgba(0,0,0,0.9)" stroke="rgba(255,255,255,0.18)" strokeWidth={f(1)} />
+            <text x={mx} y={my + f(4.5)} textAnchor="middle" className="tvalue no-halo"
+              fontSize={f(12)} fill="rgba(244,245,247,0.82)">{e.weight}</text>
           </g>
         );
       })}
       {g.nodes.map((n) => {
         const c = q.colors?.[n.id];
         const isStart = g.startId === n.id, isGoal = g.goalId === n.id;
-        const h = q.hLabels?.[n.id];
+        const hv = q.hLabels?.[n.id];
+        const filled = !!c;
         return (
           <g key={n.id} transform={`translate(${n.x},${n.y})`}>
             {g.landmarkIds.includes(n.id) && (
-              <rect x={-19} y={-19} width={38} height={38} fill="none" stroke="#A78BFA" strokeWidth="1.5" strokeDasharray="5 4" transform="rotate(45)" />
+              <rect x={-f(26)} y={-f(26)} width={f(52)} height={f(52)} fill="none" stroke="#A78BFA"
+                strokeWidth={f(1.5)} strokeDasharray={`${f(5)} ${f(4)}`} transform="rotate(45)" />
             )}
-            {(isStart || isGoal) && <circle r={16} fill="none" stroke={isStart ? '#43D9E8' : '#72E6A1'} strokeWidth="1.8" />}
-            <circle r={11} fill={c ?? 'rgba(78,88,100,0.95)'} stroke="rgba(9,11,15,0.6)" strokeWidth="1.2" />
-            <text y={25} textAnchor="middle" className="tvalue" fontSize="11" fill={c ?? 'rgba(231,236,242,0.6)'}>{n.label}</text>
-            {h !== undefined && <text y={-18} textAnchor="middle" className="tvalue" fontSize="10.5" fill="#FFCE85">h {h}</text>}
-            {isStart && <text y={-18} textAnchor="middle" className="tvalue" fontSize="8.5" fill="#43D9E8">START</text>}
-            {isGoal && <text y={-18} textAnchor="middle" className="tvalue" fontSize="8.5" fill="#72E6A1">GOAL</text>}
+            {(isStart || isGoal) && (
+              <circle r={f(23)} fill="none" stroke={isStart ? '#43D9E8' : '#72E6A1'} strokeWidth={f(1.8)} />
+            )}
+            <circle r={f(17)} fill={c ?? '#28313E'}
+              stroke={filled ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.42)'} strokeWidth={f(1.6)} />
+            <text y={f(5)} textAnchor="middle" className="tvalue in-node" fontSize={f(14)} fontWeight="600"
+              fill={filled ? '#0A0D12' : 'rgba(244,245,247,0.92)'}>{n.label}</text>
+            {hv !== undefined && (
+              <text y={-f(25)} textAnchor="middle" className="tvalue" fontSize={f(12.5)} fill="#FFCE85">{hv} to go</text>
+            )}
+            {isStart && hv === undefined && (
+              <text y={-f(25)} textAnchor="middle" className="tvalue" fontSize={f(11.5)} fill="#43D9E8">START</text>
+            )}
+            {isGoal && hv === undefined && (
+              <text y={-f(25)} textAnchor="middle" className="tvalue" fontSize={f(11.5)} fill="#72E6A1">END</text>
+            )}
           </g>
         );
       })}
@@ -317,13 +443,13 @@ export default function Practice() {
 
   return (
     <div className="mx-auto max-w-[1600px] px-4 sm:px-6 py-10 md:py-14">
-      <SectionHead index="06" kicker="PRACTICE & CHALLENGE" title="Test what you have understood"
-        lead="Every question is generated live: a graph is built, the real algorithm is run on it, and the answer is read off the execution. The same question never comes back with the same numbers." />
+      <SectionHead index="06" kicker="Practice" title="Check what you have understood"
+        lead="Every question is made on the spot: a map is built, the real algorithm runs on it, and the answer is read off that run. The same question never comes back with the same numbers." />
 
       <div className="grid gap-3 lg:grid-cols-[280px_1fr] min-w-0-all">
         {/* ── Level + score ───────────────────────────────────────────── */}
         <div className="space-y-3">
-          <Panel title="DIFFICULTY" ticks>
+          <Panel title="Difficulty" ticks>
             <div className="space-y-1.5">
               {(Object.keys(LEVEL_INFO) as Level[]).map((lv) => {
                 const li = LEVEL_INFO[lv];
@@ -333,30 +459,30 @@ export default function Practice() {
                     aria-pressed={active}
                     className={`w-full text-left px-2.5 py-2 border transition-colors ${active ? 'bg-white/[0.04]' : 'border-white/[0.08] hover:border-white/20'}`}
                     style={{ borderColor: active ? `${li.color}88` : undefined }}>
-                    <div className="tvalue text-[11px] tracking-[0.12em]" style={{ color: active ? li.color : 'rgba(255,255,255,0.72)' }}>{li.label}</div>
-                    <div className="text-[11.5px] leading-snug text-white/45 mt-1">{li.blurb}</div>
+                    <div className="tvalue text-[13.5px] tracking-[0.12em]" style={{ color: active ? li.color : 'rgba(255,255,255,0.72)' }}>{li.label}</div>
+                    <div className="text-[13.5px] leading-snug text-ink3 mt-1">{li.blurb}</div>
                   </button>
                 );
               })}
             </div>
           </Panel>
 
-          <Panel title="PROGRESS" ticks>
+          <Panel title="Your progress" ticks>
             <div className="grid grid-cols-2 gap-2 mb-3">
               <div className="panel px-2.5 py-2">
-                <div className="tlabel !text-[8.5px]">SCORE</div>
+                <div className="tlabel !text-[12.5px]">Score</div>
                 <div className="tvalue text-[17px] text-signal mt-0.5">{score.correct}/{score.total}</div>
               </div>
               <div className="panel px-2.5 py-2">
-                <div className="tlabel !text-[8.5px]">ACCURACY</div>
+                <div className="tlabel !text-[12.5px]">Correct</div>
                 <div className="tvalue text-[17px] text-cyan mt-0.5">{accuracy}%</div>
               </div>
               <div className="panel px-2.5 py-2">
-                <div className="tlabel !text-[8.5px]">STREAK</div>
+                <div className="tlabel !text-[12.5px]">Streak</div>
                 <div className="tvalue text-[17px] text-amber mt-0.5">{score.streak}</div>
               </div>
               <div className="panel px-2.5 py-2">
-                <div className="tlabel !text-[8.5px]">BEST</div>
+                <div className="tlabel !text-[12.5px]">Best run</div>
                 <div className="tvalue text-[17px] text-violet mt-0.5">{score.best}</div>
               </div>
             </div>
@@ -365,7 +491,7 @@ export default function Practice() {
                 animate={{ width: `${accuracy}%` }} transition={{ duration: 0.4 }} />
             </div>
             {score.total >= 5 && (
-              <p className="text-[11.5px] leading-snug text-white/50 mt-2.5 flex gap-1.5">
+              <p className="text-[13.5px] leading-snug text-ink3 mt-2.5 flex gap-1.5">
                 <Trophy size={13} className="text-amber shrink-0 mt-px" />
                 {accuracy >= 80 ? 'You are reading these traces fluently — try the advanced level.'
                   : accuracy >= 50 ? 'Solid. Re-read the decision panel in the Visualizer for the cases you missed.'
@@ -373,7 +499,7 @@ export default function Practice() {
               </p>
             )}
             <button className="btn w-full justify-center mt-3" onClick={() => setScore({ correct: 0, total: 0, streak: 0, best: 0 })}>
-              RESET SCORE
+              Reset score
             </button>
           </Panel>
         </div>
@@ -381,15 +507,15 @@ export default function Practice() {
         {/* ── Question ────────────────────────────────────────────────── */}
         <Panel ticks dense className="overflow-hidden">
           <header className="px-3 py-2.5 hairline-b flex flex-wrap items-center gap-2">
-            <span className="tvalue text-[9.5px] px-1.5 py-0.5 border" style={{ color: info.color, borderColor: `${info.color}55` }}>{info.label}</span>
-            <span className="tlabel !text-[9px]">{q.topic}</span>
+            <span className="tvalue text-[13px] px-1.5 py-0.5 border" style={{ color: info.color, borderColor: `${info.color}55` }}>{info.label}</span>
+            <span className="tlabel !text-[12.5px]">{q.topic}</span>
             <button className="btn !px-2 !py-1 ml-auto" onClick={() => next()} aria-label="Skip to a new question">
-              <RefreshCw size={11} /> NEW QUESTION
+              <RefreshCw size={13} /> New question
             </button>
           </header>
 
           <div className="p-3 md:p-4">
-            <p className="text-[14px] md:text-[15px] leading-relaxed text-white/85 mb-4">{q.prompt}</p>
+            <p className="text-[14px] md:text-[15px] leading-relaxed text-ink1 mb-4">{q.prompt}</p>
 
             {q.graph && (
               <div className="panel mb-4 overflow-hidden">
@@ -399,11 +525,13 @@ export default function Practice() {
 
             {q.frontier && (
               <div className="mb-4">
-                <div className="tlabel !text-[9px] mb-1.5">FRONTIER</div>
+                <div className="text-[14px] text-ink2 mb-2">{q.frontierMode === 'queue' ? 'Queue — front on the left' : 'Waiting list'}</div>
                 <div className="flex flex-wrap gap-1.5">
                   {q.frontier.map((f) => (
-                    <span key={f.label} className="tvalue text-[11px] px-2 py-1 border border-white/[0.12] bg-black/30">
-                      {f.label} <span className="text-amber">h {f.h}</span>
+                    <span key={f.label} className="tvalue text-[13.5px] px-2 py-1 border border-white/[0.12] bg-black/30">
+                      {f.label}{' '}{q.frontierMode === 'queue'
+                        ? <span className="text-cyan">ring {f.h}</span>
+                        : <span className="text-amber">{f.h} to go</span>}
                     </span>
                   ))}
                 </div>
@@ -421,11 +549,11 @@ export default function Practice() {
                   <button key={i} onClick={() => answer(i)} disabled={revealed}
                     className="text-left px-3 py-2.5 border transition-colors flex items-start gap-2.5 disabled:cursor-default"
                     style={{ borderColor: border, background: bg }}>
-                    <span className="tvalue text-[10px] mt-0.5 shrink-0"
+                    <span className="tvalue text-[13px] mt-0.5 shrink-0"
                       style={{ color: revealed ? (isAnswer ? '#72E6A1' : isChosen ? '#FF647C' : 'rgba(255,255,255,0.3)') : 'rgba(67,217,232,0.7)' }}>
                       {revealed && isAnswer ? <Check size={13} /> : revealed && isChosen ? <X size={13} /> : String.fromCharCode(65 + i)}
                     </span>
-                    <span className="text-[13px] leading-snug text-white/80">{opt}</span>
+                    <span className="text-[13px] leading-snug text-ink1">{opt}</span>
                   </button>
                 );
               })}
@@ -436,13 +564,13 @@ export default function Practice() {
                 <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
                   className="mt-4">
                   <div className="panel px-3 py-3" style={{ borderColor: chosen === q.answer ? '#72E6A144' : '#FF647C44' }}>
-                    <div className="tlabel !text-[9px] mb-1.5" style={{ color: chosen === q.answer ? '#72E6A1' : '#FF647C' }}>
-                      {chosen === q.answer ? 'CORRECT' : 'NOT QUITE'}
+                    <div className="tlabel !text-[12.5px] mb-1.5" style={{ color: chosen === q.answer ? '#72E6A1' : '#FF647C' }}>
+                      {chosen === q.answer ? 'Correct' : 'Not quite'}
                     </div>
-                    <p className="text-[13px] leading-relaxed text-white/70">{q.explanation}</p>
+                    <p className="text-[13px] leading-relaxed text-ink2">{q.explanation}</p>
                   </div>
                   <button className="btn btn-primary mt-3" onClick={() => next()}>
-                    <Target size={13} /> NEXT QUESTION
+                    <Target size={14} /> Next question
                   </button>
                 </motion.div>
               )}
@@ -451,7 +579,7 @@ export default function Practice() {
         </Panel>
       </div>
 
-      <Callout tone="info" title="HOW THESE QUESTIONS ARE BUILT">
+      <Callout tone="info" title="How these questions are built">
         Each question constructs a graph, runs the engine on it, and takes the answer from the resulting execution trace — the same
         engine that drives the Visualizer. That is why the networks and numbers change every time, and why the explanations can
         quote the actual expansion counts and route costs for the graph in front of you.

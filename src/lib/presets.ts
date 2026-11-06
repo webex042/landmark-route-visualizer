@@ -110,9 +110,9 @@ const TRAP: Spec = {
 export interface PresetDef { key: string; name: string; note: string; make: () => Graph }
 
 export const PRESETS: PresetDef[] = [
-  { key: 'city', name: 'City Route Network', note: '14 locations, 22 roads. A congested bridge and a fast northern highway make travel cost diverge from straight-line distance: the landmark heuristic finds the optimal route here, straight-line distance does not.', make: () => build(CITY) },
-  { key: 'campus', name: 'Campus Navigation', note: 'A representative campus walking network — sample coordinates and paths, not surveyed ones.', make: () => build(CAMPUS) },
-  { key: 'trap', name: 'Greedy Trap (teaching case)', note: 'The heuristic here is exact, yet the greedy route costs 11 against an optimal 3 — the clearest demonstration of why f(n) = h(n) carries no optimality guarantee.', make: () => build(TRAP) },
+  { key: 'city', name: 'City roads', note: '14 towns, 22 roads. One bridge is jammed and the northern highway is fast, so the shortest road is not the one that looks shortest. Good for seeing why a straight-line guess gets it wrong.', make: () => build(CITY) },
+  { key: 'campus', name: 'Campus paths', note: 'Walking paths around a campus. Example layout, not a surveyed map.', make: () => build(CAMPUS) },
+  { key: 'trap', name: 'The greedy trap', note: 'The guess is perfect here, and the algorithm still picks a route costing 11 when one costing 3 exists. The clearest example of what greedy search gets wrong.', make: () => build(TRAP) },
 ];
 
 export const defaultGraph = () => build(CITY);

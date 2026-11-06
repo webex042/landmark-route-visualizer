@@ -12,7 +12,7 @@ import {
 import { PRESETS, defaultGraph, randomGraph } from '../lib/presets';
 import { HeuristicKind, makeHeuristic } from '../lib/heuristics';
 import { LandmarkTable } from '../lib/dijkstra';
-import { search, compareAll, SearchResult, SearchStep } from '../lib/searchEngine';
+import { search, compareAll, compareAlgorithms, SearchResult, SearchStep, Algorithm } from '../lib/searchEngine';
 
 export type EditorMode = 'inspect' | 'add-node' | 'connect' | 'erase';
 
@@ -46,6 +46,9 @@ interface AppState {
   graph: Graph;
   presetKey: string;
   mode: EditorMode;
+  /** Which search runs. Breadth-First is the headline topic; Best-First is
+   *  the comparison that shows what a landmark guess adds. */
+  algorithm: Algorithm;
   heuristic: HeuristicKind;
 
   selectedNodeId: string | null;
@@ -62,6 +65,7 @@ interface AppState {
   playing: boolean;
   speed: number; // steps per second
   comparison: Record<HeuristicKind, SearchResult> | null;
+  algoComparison: Record<Algorithm, SearchResult> | null;
 
   notice: { kind: 'error' | 'info' | 'ok'; text: string } | null;
 
@@ -95,6 +99,7 @@ interface AppState {
 
   /* execution */
   setHeuristic: (k: HeuristicKind) => void;
+  setAlgorithm: (a: Algorithm) => void;
   runSearch: () => void;
   runComparison: () => void;
   play: () => void;
@@ -114,12 +119,13 @@ const DEFAULT_VIEW: Viewport = { zoom: 1, x: 0, y: 0 };
 
 /** Any structural change invalidates a recorded run — never show a trace that
  *  no longer matches the graph on screen. */
-const invalidate = () => ({ result: null, stepIndex: 0, playing: false, comparison: null });
+const invalidate = () => ({ result: null, stepIndex: 0, playing: false, comparison: null, algoComparison: null });
 
 export const useApp = create<AppState>((set, get) => ({
   graph: defaultGraph(),
   presetKey: 'city',
   mode: 'inspect',
+  algorithm: 'bfs',
   heuristic: 'landmark',
   selectedNodeId: null,
   connectFromId: null,
@@ -133,6 +139,7 @@ export const useApp = create<AppState>((set, get) => ({
   playing: false,
   speed: 1.6,
   comparison: null,
+  algoComparison: null,
   notice: null,
 
   setGraph: (g) => set({ graph: g, viewBox: fitBoxFor(g), ...invalidate() }),
@@ -141,22 +148,22 @@ export const useApp = create<AppState>((set, get) => ({
     const p = PRESETS.find((x) => x.key === key);
     if (!p) return;
     const g = p.make();
-    set({ graph: g, viewBox: fitBoxFor(g), presetKey: key, ...invalidate(), selectedNodeId: null, connectFromId: null, selectedEdgeId: null, inspectNodeId: null, view: DEFAULT_VIEW, notice: { kind: 'info', text: `Loaded environment: ${p.name}` } });
+    set({ graph: g, viewBox: fitBoxFor(g), presetKey: key, ...invalidate(), selectedNodeId: null, connectFromId: null, selectedEdgeId: null, inspectNodeId: null, view: DEFAULT_VIEW, notice: { kind: 'info', text: `Loaded map: ${p.name}` } });
   },
 
   generateRandom: (n, density, landmarks) => {
     const g = randomGraph(n, density, landmarks);
-    return set({ graph: g, viewBox: fitBoxFor(g), presetKey: 'random', ...invalidate(), selectedNodeId: null, connectFromId: null, inspectNodeId: null, view: DEFAULT_VIEW, notice: { kind: 'info', text: `Generated a random connected graph with ${n} nodes.` } });
+    return set({ graph: g, viewBox: fitBoxFor(g), presetKey: 'random', ...invalidate(), selectedNodeId: null, connectFromId: null, inspectNodeId: null, view: DEFAULT_VIEW, notice: { kind: 'info', text: `Made a random map with ${n} places.` } });
   },
 
   resetGraph: () => { get().loadPreset(get().presetKey === 'random' ? 'city' : get().presetKey); },
 
-  clearGraph: () => set({ graph: { nodes: [], edges: [], startId: null, goalId: null, landmarkIds: [] }, viewBox: BASE_BOX, view: DEFAULT_VIEW, presetKey: 'custom', ...invalidate(), selectedNodeId: null, connectFromId: null, inspectNodeId: null, notice: { kind: 'info', text: 'Canvas cleared. Switch to ADD NODE and click to build a graph.' } }),
+  clearGraph: () => set({ graph: { nodes: [], edges: [], startId: null, goalId: null, landmarkIds: [] }, viewBox: BASE_BOX, view: DEFAULT_VIEW, presetKey: 'custom', ...invalidate(), selectedNodeId: null, connectFromId: null, inspectNodeId: null, notice: { kind: 'info', text: 'Map cleared. Choose “Add place” and click to start building.' } }),
 
   importGraph: (text) => {
     const g = deserialise(text);
-    if (!g) return set({ notice: { kind: 'error', text: 'That file could not be read as a graph.' } });
-    set({ graph: g, viewBox: fitBoxFor(g), view: DEFAULT_VIEW, presetKey: 'custom', ...invalidate(), notice: { kind: 'ok', text: `Imported ${g.nodes.length} nodes and ${g.edges.length} edges.` } });
+    if (!g) return set({ notice: { kind: 'error', text: 'That file could not be read as a map.' } });
+    set({ graph: g, viewBox: fitBoxFor(g), view: DEFAULT_VIEW, presetKey: 'custom', ...invalidate(), notice: { kind: 'ok', text: `Loaded ${g.nodes.length} places and ${g.edges.length} roads.` } });
   },
 
   addNodeAt: (x, y) => set((s) => ({ graph: addNode(s.graph, Math.round(x), Math.round(y)), presetKey: 'custom', ...invalidate() })),
@@ -182,7 +189,7 @@ export const useApp = create<AppState>((set, get) => ({
   deleteEdge: (id) => set((s) => ({ graph: removeEdge(s.graph, id), presetKey: 'custom', ...invalidate(), selectedEdgeId: null })),
 
   updateEdgeWeight: (id, w) => {
-    if (!(w > 0) || !Number.isFinite(w)) return set({ notice: { kind: 'error', text: 'Edge weight must be a number greater than zero.' } });
+    if (!(w > 0) || !Number.isFinite(w)) return set({ notice: { kind: 'error', text: 'A road length has to be a number greater than zero.' } });
     set((s) => ({ graph: setEdgeWeight(s.graph, id, w), ...invalidate() }));
   },
 
@@ -199,12 +206,13 @@ export const useApp = create<AppState>((set, get) => ({
   fitView: () => set((st) => ({ view: DEFAULT_VIEW, viewBox: fitBoxFor(st.graph) })),
 
   setHeuristic: (k) => set({ heuristic: k, ...invalidate() }),
+  setAlgorithm: (a) => set({ algorithm: a, ...invalidate() }),
 
   runSearch: () => {
-    const { graph, heuristic } = get();
+    const { graph, heuristic, algorithm } = get();
     const v = validateGraph(graph);
     if (!v.ok) return set({ notice: { kind: 'error', text: v.errors[0] } });
-    const result = search(graph, heuristic);
+    const result = search(graph, heuristic, algorithm);
     set({
       result, stepIndex: 0, playing: true,
       notice: result.success ? null : { kind: 'error', text: result.failureReason ?? 'No route found.' },
@@ -215,7 +223,7 @@ export const useApp = create<AppState>((set, get) => ({
     const { graph } = get();
     const v = validateGraph(graph);
     if (!v.ok) return set({ notice: { kind: 'error', text: v.errors[0] } });
-    set({ comparison: compareAll(graph), notice: { kind: 'ok', text: 'All three heuristics ran on this graph, start and destination.' } });
+    set({ comparison: compareAll(graph), algoComparison: compareAlgorithms(graph), notice: { kind: 'ok', text: 'Every method ran on this same map, start and destination.' } });
   },
 
   play: () => {
@@ -275,5 +283,27 @@ export function heuristicValues(graph: Graph, kind: HeuristicKind): Map<string, 
   const table = kind === 'landmark' ? new LandmarkTable(graph, graph.landmarkIds) : undefined;
   const h = makeHeuristic(kind, graph, graph.goalId, table);
   for (const n of graph.nodes) out.set(n.id, h(n.id));
+  return out;
+}
+
+/** How many roads from the start each discovered place is, at the current
+ *  step. Rebuilt from the snapshot's parent pointers, so it is exact for
+ *  every place the search has found so far and absent for the rest. */
+export function ringDepths(graph: Graph, step: SearchStep | null): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!step || !graph.startId) return out;
+  out.set(graph.startId, 0);
+  for (const f of step.frontier) out.set(f.nodeId, f.depth);
+  const resolve = (id: string, guard = 0): number | undefined => {
+    if (out.has(id)) return out.get(id);
+    const p = step.parents[id];
+    if (!p || guard > graph.nodes.length) return undefined;
+    const d = resolve(p, guard + 1);
+    if (d === undefined) return undefined;
+    out.set(id, d + 1);
+    return d + 1;
+  };
+  for (const id of step.explored) resolve(id);
+  for (const id of Object.keys(step.parents)) resolve(id);
   return out;
 }

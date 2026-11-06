@@ -1,8 +1,11 @@
-import { useCallback, useMemo, useRef, useState, useEffect } from 'react';
-import { useApp, currentStep, nodeVisuals, heuristicValues, NODE_COLORS, NodeVisual } from '../state/store';
+import { useCallback, useMemo, useRef, useState, useEffect, useLayoutEffect } from 'react';
+import { useApp, currentStep, nodeVisuals, heuristicValues, ringDepths, NODE_COLORS, NodeVisual, ViewBox } from '../state/store';
 import { labelOf } from '../lib/graph';
 
-const R = 13;
+/* Nodes carry their own name now, so they have to be big enough to hold a
+ * couple of characters legibly at a glance — and big enough to be a
+ * comfortable touch target on a phone. */
+const R = 19;
 
 interface Props {
   height?: number;
@@ -13,6 +16,22 @@ interface Props {
   showSearchState?: boolean;
 }
 
+/** Grows the fitted box to the container's aspect ratio so the drawing fills
+ *  the panel. Without this, SVG's `meet` letterboxes a wide graph inside a
+ *  tall phone panel and the network shrinks into a thin band in the middle. */
+function fitToAspect(box: ViewBox, w: number, h: number): ViewBox {
+  if (!w || !h) return box;
+  const target = w / h;
+  const current = box.w / box.h;
+  if (Math.abs(target - current) < 1e-4) return box;
+  if (target > current) {
+    const nw = box.h * target;
+    return { x: box.x - (nw - box.w) / 2, y: box.y, w: nw, h: box.h };
+  }
+  const nh = box.w / target;
+  return { x: box.x, y: box.y - (nh - box.h) / 2, w: box.w, h: nh };
+}
+
 export default function GraphCanvas({ height, interactive = true, compact = false, showSearchState = true }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const s = useApp();
@@ -21,23 +40,47 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
     () => (showSearchState ? nodeVisuals(s) : new Map(s.graph.nodes.map((n) => [n.id, 'idle' as const]))),
     [s.graph, s.result, s.stepIndex, showSearchState],
   );
-  const hValues = useMemo(() => heuristicValues(s.graph, s.heuristic), [s.graph, s.heuristic]);
+  const isBFS = s.algorithm === 'bfs';
+  /* Under Breadth-First the guess is still worth showing — it is the
+     project's landmark topic — but it plays no part in the search, so it is
+     always the landmark guess and always drawn greyed-out. */
+  const hValues = useMemo(() => heuristicValues(s.graph, isBFS ? 'landmark' : s.heuristic), [s.graph, s.heuristic, isBFS]);
+  const rings = useMemo(() => ringDepths(s.graph, step), [s.graph, step]);
 
   const [drag, setDrag] = useState<{ id: string; moved: boolean } | null>(null);
   const [pan, setPan] = useState<{ x: number; y: number; vx: number; vy: number } | null>(null);
   const [ghost, setGhost] = useState<{ x: number; y: number } | null>(null);
   const [hoverEdge, setHoverEdge] = useState<string | null>(null);
+  const [box, setBox] = useState({ w: 0, h: 0 });
+
+  /* Track the rendered size so the viewBox can match it. */
+  useLayoutEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setBox({ w: r.width, h: r.height });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   /* The fitted viewBox is owned by the store, so it changes only on load,
-   * generate, import or an explicit FIT — not while the user edits. */
-  const vb = s.viewBox;
+   * generate, import or an explicit FIT — not while the user edits. Here it
+   * is only stretched to the panel's shape. */
+  const vb = useMemo(() => fitToAspect(s.viewBox, box.w, box.h), [s.viewBox, box.w, box.h]);
 
-  /* ── Screen → world coordinate conversion (accounts for xMidYMid meet) ── */
+  /* Scale factor: with an aspect-matched viewBox both axes share one scale. */
+  const scale = box.w && vb.w ? box.w / vb.w : 1;
+
+  /* ── Screen → world coordinate conversion ─────────────────────────────── */
   const toWorld = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current;
     if (!svg) return { x: 0, y: 0 };
     const r = svg.getBoundingClientRect();
-    const k = Math.min(r.width / vb.w, r.height / vb.h);
+    const k = Math.min(r.width / vb.w, r.height / vb.h) || 1;
     const vx = vb.x + (clientX - r.left - (r.width - vb.w * k) / 2) / k;
     const vy = vb.y + (clientY - r.top - (r.height - vb.h * k) / 2) / k;
     return { x: (vx - s.view.x) / s.view.zoom, y: (vy - s.view.y) / s.view.zoom };
@@ -52,7 +95,6 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
     const w = toWorld(e.clientX, e.clientY);
     if (s.mode === 'add-node') { s.addNodeAt(w.x, w.y); return; }
     s.selectEdge(null);
-    if (s.mode === 'connect' && s.connectFromId) { /* keep rubber band alive */ }
     setPan({ x: e.clientX, y: e.clientY, vx: s.view.x, vy: s.view.y });
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
   };
@@ -82,9 +124,7 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
       return;
     }
     if (pan) {
-      const svg = svgRef.current!;
-      const r = svg.getBoundingClientRect();
-      const k = Math.min(r.width / vb.w, r.height / vb.h);
+      const k = scale || 1;
       s.setView({ x: pan.vx + (e.clientX - pan.x) / k, y: pan.vy + (e.clientY - pan.y) / k });
     }
   };
@@ -125,14 +165,30 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
 
   const cursor = s.mode === 'add-node' ? 'crosshair' : s.mode === 'erase' ? 'not-allowed' : s.mode === 'connect' ? 'cell' : drag ? 'grabbing' : 'grab';
 
+  /* On-canvas type has to survive two separate shrinkings: the user's zoom,
+     and the viewBox being mapped into a small panel. `k` is the second one.
+     Dividing by both keeps a 12px label rendering at roughly 12 real pixels
+     on a phone and on a desktop alike. */
+  const z = s.view.zoom;
+  const k = scale || 1;
+  const fs = (px: number) => px / (z * Math.max(0.5, Math.min(1.15, k)));
+
+  /* When the drawing is squeezed into a small panel there is simply not room
+     for full place names, estimate chips and role captions at a readable
+     size. Rather than shrink them into illegibility we drop to a compact
+     representation: a legible badge inside each circle, details on tap. */
+  const tight = k < 0.62;
+  const showChips = s.toggles.heuristics && !compact && !tight;
+
   return (
     <svg
       ref={svgRef}
       className="graph-canvas w-full select-none"
       style={{ height: height ?? '100%', cursor: interactive ? cursor : 'default', display: 'block', background: '#090B0F' }}
       viewBox={`${vb.x} ${vb.y} ${vb.w} ${vb.h}`}
+      preserveAspectRatio="xMidYMid meet"
       role="application"
-      aria-label="Route finding graph canvas"
+      aria-label="Route finding map. Each circle is a place, each line is a road."
       onPointerDown={onBackgroundDown}
       onPointerMove={onMove}
       onPointerUp={onUp}
@@ -140,52 +196,32 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
       onWheel={onWheel}
     >
       <defs>
-        <pattern id="gridFine" width="28" height="28" patternUnits="userSpaceOnUse">
-          <path d="M28 0H0V28" fill="none" stroke="rgba(255,255,255,0.045)" strokeWidth="1" />
+        <pattern id="gridFine" width="32" height="32" patternUnits="userSpaceOnUse">
+          <path d="M32 0H0V32" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="1" />
         </pattern>
-        <pattern id="gridCoarse" width="140" height="140" patternUnits="userSpaceOnUse">
-          <path d="M140 0H0V140" fill="none" stroke="rgba(67,217,232,0.085)" strokeWidth="1" />
+        <pattern id="gridCoarse" width="160" height="160" patternUnits="userSpaceOnUse">
+          <path d="M160 0H0V160" fill="none" stroke="rgba(67,217,232,0.07)" strokeWidth="1" />
         </pattern>
         <filter id="softGlow" x="-70%" y="-70%" width="240%" height="240%">
-          <feGaussianBlur stdDeviation="5" result="b" />
+          <feGaussianBlur stdDeviation="4" result="b" />
           <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
-        <marker id="arrowPath" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+        <marker id="arrowPath" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto">
           <path d="M0 0 L10 5 L0 10 z" fill="#72E6A1" />
         </marker>
       </defs>
 
+      {/* Background: always painted, so panning never reveals the page behind. */}
+      <rect x={vb.x} y={vb.y} width={vb.w} height={vb.h} fill="#090B0F" />
       {s.toggles.grid && (
-        <g>
-          <rect x={vb.x} y={vb.y} width={vb.w} height={vb.h} fill="#090B0F" />
+        <g pointerEvents="none">
           <rect x={vb.x} y={vb.y} width={vb.w} height={vb.h} fill="url(#gridFine)" />
           <rect x={vb.x} y={vb.y} width={vb.w} height={vb.h} fill="url(#gridCoarse)" />
-          {/* engineering measurement markings */}
-          {Array.from({ length: Math.floor(vb.w / 140) }, (_, i) => {
-            const gx = Math.ceil(vb.x / 140) * 140 + 140 * i;
-            if (gx <= vb.x + 12 || gx >= vb.x + vb.w - 12) return null;
-            return (
-              <g key={`x${i}`} className="tvalue no-halo" fill="rgba(255,255,255,0.18)" fontSize="8">
-                <text x={gx + 4} y={vb.y + 13}>{gx}</text>
-                <line x1={gx} y1={vb.y} x2={gx} y2={vb.y + 6} stroke="rgba(67,217,232,0.35)" strokeWidth="1" />
-              </g>
-            );
-          })}
-          {Array.from({ length: Math.floor(vb.h / 140) }, (_, i) => {
-            const gy = Math.ceil(vb.y / 140) * 140 + 140 * i;
-            if (gy <= vb.y + 12 || gy >= vb.y + vb.h - 12) return null;
-            return (
-              <g key={`y${i}`} className="tvalue no-halo" fill="rgba(255,255,255,0.18)" fontSize="8">
-                <text x={vb.x + 7} y={gy - 4}>{gy}</text>
-                <line x1={vb.x} y1={gy} x2={vb.x + 6} y2={gy} stroke="rgba(67,217,232,0.35)" strokeWidth="1" />
-              </g>
-            );
-          })}
         </g>
       )}
 
       <g transform={`translate(${s.view.x},${s.view.y}) scale(${s.view.zoom})`}>
-        {/* ── Edges ──────────────────────────────────────────────────────── */}
+        {/* ── Roads ──────────────────────────────────────────────────────── */}
         {s.graph.edges.map((e) => {
           const a = nodeById.get(e.a), b = nodeById.get(e.b);
           if (!a || !b) return null;
@@ -193,14 +229,16 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
           const active = activeEdges.has(e.id);
           const sel = s.selectedEdgeId === e.id;
           const hov = hoverEdge === e.id;
-          const stroke = onPath ? '#72E6A1' : active ? '#43D9E8' : sel ? '#FFB547' : hov ? 'rgba(67,217,232,0.65)' : 'rgba(255,255,255,0.17)';
-          const width = onPath ? 3.4 : active ? 2.2 : sel || hov ? 2 : 1.2;
+          const stroke = onPath ? '#72E6A1' : active ? '#43D9E8' : sel ? '#FFB547' : hov ? 'rgba(67,217,232,0.7)' : 'rgba(255,255,255,0.22)';
+          const width = onPath ? 4.5 : active ? 3 : sel || hov ? 2.4 : 1.6;
           const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+          const wLabel = String(e.weight);
+          const boxW = fs(Math.max(26, wLabel.length * 8.5 + 12));
           return (
             <g key={e.id}>
               <line
                 x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                stroke="transparent" strokeWidth={16} style={{ cursor: interactive ? 'pointer' : 'default' }}
+                stroke="transparent" strokeWidth={20} style={{ cursor: interactive ? 'pointer' : 'default' }}
                 onPointerDown={(ev) => {
                   if (!interactive) return;
                   ev.stopPropagation();
@@ -209,7 +247,7 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
                 onDoubleClick={(ev) => {
                   if (!interactive) return;
                   ev.stopPropagation();
-                  const nextW = window.prompt(`Set weight for edge ${labelOf(s.graph, e.a)} ↔ ${labelOf(s.graph, e.b)}:`, String(e.weight));
+                  const nextW = window.prompt(`How long is the road between ${labelOf(s.graph, e.a)} and ${labelOf(s.graph, e.b)}?`, String(e.weight));
                   if (nextW !== null) {
                     const val = parseFloat(nextW);
                     if (val > 0 && Number.isFinite(val)) s.updateEdgeWeight(e.id, Math.round(val * 100) / 100);
@@ -219,20 +257,21 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
                 onPointerLeave={() => setHoverEdge((h) => (h === e.id ? null : h))}
               />
               <line
+                className="edge-line"
                 x1={a.x} y1={a.y} x2={b.x} y2={b.y}
                 stroke={stroke} strokeWidth={width} strokeLinecap="round"
-                filter={onPath || active ? 'url(#softGlow)' : undefined}
-                strokeDasharray={active && !onPath ? '7 5' : undefined}
-                className={active && !onPath ? 'animate-dash' : undefined}
+                filter={onPath ? 'url(#softGlow)' : undefined}
+                strokeDasharray={active && !onPath ? '9 6' : undefined}
+                style={active && !onPath ? { animation: 'flowDash 1.1s linear infinite' } : undefined}
                 markerEnd={onPath ? 'url(#arrowPath)' : undefined}
                 pointerEvents="none"
               />
               {s.toggles.weights && (
                 <g pointerEvents="none">
-                  <rect x={mx - 12} y={my - 8} width={24} height={15} rx={1.5}
-                    fill="rgba(9,11,15,0.88)" stroke={onPath ? 'rgba(114,230,161,0.5)' : 'rgba(255,255,255,0.14)'} strokeWidth="1" />
-                  <text x={mx} y={my + 3} textAnchor="middle" className="tvalue"
-                    fontSize="9.5" fill={onPath ? '#A8F0C8' : 'rgba(231,236,242,0.72)'}>{e.weight}</text>
+                  <rect x={mx - boxW / 2} y={my - fs(10)} width={boxW} height={fs(20)} rx={2}
+                    fill="rgba(9,11,15,0.92)" stroke={onPath ? 'rgba(114,230,161,0.6)' : 'rgba(255,255,255,0.18)'} strokeWidth="1" />
+                  <text x={mx} y={my + fs(4.5)} textAnchor="middle" className="tvalue no-halo"
+                    fontSize={fs(12)} fontWeight="500" fill={onPath ? '#A8F0C8' : 'rgba(236,241,247,0.85)'}>{e.weight}</text>
                 </g>
               )}
             </g>
@@ -242,10 +281,10 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
         {/* ── Connect-mode rubber band ──────────────────────────────────── */}
         {fromNode && ghost && (
           <line x1={fromNode.x} y1={fromNode.y} x2={ghost.x} y2={ghost.y}
-            stroke="#FFB547" strokeWidth="1.6" strokeDasharray="5 5" className="animate-dash" pointerEvents="none" />
+            stroke="#FFB547" strokeWidth="2" strokeDasharray="7 6" className="animate-dash" pointerEvents="none" />
         )}
 
-        {/* ── Nodes ──────────────────────────────────────────────────────── */}
+        {/* ── Places ─────────────────────────────────────────────────────── */}
         {s.graph.nodes.map((n) => {
           const vis: NodeVisual = visuals.get(n.id) ?? 'idle';
           const color = NODE_COLORS[vis];
@@ -259,42 +298,70 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
           const h = hValues.get(n.id);
           const g = step?.gCost?.[n.id];
 
+          /* A short label (A, B, S, G) reads best inside the circle. A real
+             place name does not fit, so on a roomy canvas it goes underneath
+             and the circle stays clean; on a cramped one it collapses to
+             initials inside, which stay legible where a full name would not.
+             "MAIN GATE" becomes MG rather than a blunt truncation. */
+          const words = n.label.trim().split(/\s+/);
+          const initials = words.length > 1
+            ? words.slice(0, 2).map((w) => w[0]).join('')
+            : n.label.slice(0, 2);
+          const shortLabel = n.label.length <= 4;
+          const insideText = shortLabel ? n.label : tight ? initials : null;
+          const belowText = shortLabel || tight ? null : n.label;
+
+          const filled = vis !== 'idle';
+          const roleRing = isStart ? '#43D9E8' : isGoal ? '#72E6A1' : null;
+
           return (
             <g key={n.id} transform={`translate(${n.x},${n.y})`}>
               {isLandmark && s.toggles.landmarks && (
                 <g pointerEvents="none">
-                  <rect x={-R - 8} y={-R - 8} width={(R + 8) * 2} height={(R + 8) * 2}
-                    fill="none" stroke="#A78BFA" strokeWidth="1" strokeDasharray="4 4" transform="rotate(45)" opacity="0.75" />
-                  <text x={0} y={-R - 15} textAnchor="middle" className="tvalue" fontSize="8"
-                    fill="#C6B2FD" letterSpacing="1.4">LM</text>
+                  <rect x={-R - 9} y={-R - 9} width={(R + 9) * 2} height={(R + 9) * 2}
+                    fill="none" stroke="#A78BFA" strokeWidth="1.4" strokeDasharray="5 4" transform="rotate(45)" opacity="0.85" />
                 </g>
               )}
               {isCurrent && (
-                <circle r={R} fill="none" stroke={color} strokeWidth="2" className="animate-pulseRing pulse-ring" pointerEvents="none" />
+                <circle r={R} fill="none" stroke={color} strokeWidth="2.5" className="animate-pulseRing pulse-ring" pointerEvents="none" />
               )}
-              {(isStart || isGoal) && (
-                <circle r={R + 5.5} fill="none" stroke={isStart ? '#43D9E8' : '#72E6A1'} strokeWidth="1.3" opacity="0.85" pointerEvents="none" />
+              {roleRing && (
+                <circle r={R + 6} fill="none" stroke={roleRing} strokeWidth="1.8" opacity="0.9" pointerEvents="none" />
               )}
               {(selected || inspected || connectFrom) && (
-                <rect x={-R - 11} y={-R - 11} width={(R + 11) * 2} height={(R + 11) * 2} fill="none"
-                  stroke={connectFrom ? '#FFB547' : '#43D9E8'} strokeWidth="1" opacity="0.9" pointerEvents="none" />
+                <rect x={-R - 12} y={-R - 12} width={(R + 12) * 2} height={(R + 12) * 2} fill="none"
+                  stroke={connectFrom ? '#FFB547' : '#43D9E8'} strokeWidth="1.4" opacity="0.95" pointerEvents="none" />
               )}
 
-              <circle r={R} fill={vis === 'idle' ? 'rgba(32,40,51,0.95)' : color}
-                stroke={vis === 'idle' ? 'rgba(255,255,255,0.28)' : 'rgba(9,11,15,0.65)'} strokeWidth="1.4"
-                filter={vis !== 'idle' ? 'url(#softGlow)' : undefined} pointerEvents="none" />
+              <circle
+                className="node-body"
+                r={R}
+                fill={filled ? color : '#28313E'}
+                stroke={filled ? 'rgba(9,11,15,0.6)' : 'rgba(255,255,255,0.4)'}
+                strokeWidth="1.8"
+                filter={filled && vis !== 'frontier' ? 'url(#softGlow)' : undefined}
+                pointerEvents="none"
+              />
+
+              {/* Dark glyph on a filled node, light on an untouched one, so
+                  contrast holds in either state. */}
+              {insideText && (
+                <text y={fs(5)} textAnchor="middle" className="tvalue in-node"
+                  fontSize={fs(14)} fontWeight="600"
+                  fill={filled ? '#0A0D12' : 'rgba(236,241,247,0.92)'} pointerEvents="none">{insideText}</text>
+              )}
 
               {/* generous invisible hit area for touch */}
-              <circle r={24} fill="transparent"
+              <circle r={Math.max(28, R + 10)} fill="transparent"
                 tabIndex={interactive ? 0 : -1}
                 role="button"
-                aria-label={`Node ${n.label}${isStart ? ', start' : ''}${isGoal ? ', destination' : ''}${isLandmark ? ', landmark' : ''}${h !== undefined ? `, heuristic ${h}` : ''}`}
+                aria-label={`${n.label}${isStart ? ', start' : ''}${isGoal ? ', destination' : ''}${isLandmark ? ', landmark' : ''}${h !== undefined ? `, estimated ${h} from the destination` : ''}`}
                 style={{ cursor: interactive ? 'pointer' : 'default', outline: 'none' }}
                 onPointerDown={(ev) => onNodeDown(ev, n.id)}
                 onDoubleClick={(ev) => {
                   if (!interactive) return;
                   ev.stopPropagation();
-                  const nextName = window.prompt(`Rename node "${n.label}" to:`, n.label);
+                  const nextName = window.prompt(`Rename "${n.label}" to:`, n.label);
                   if (nextName && nextName.trim()) s.rename(n.id, nextName.trim());
                 }}
                 onKeyDown={(ev) => {
@@ -303,15 +370,66 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
                 }}
               />
 
-              {s.toggles.ids && (
-                <text x={0} y={R + 15} textAnchor="middle" className="tvalue" fontSize="10"
-                  fill={vis === 'idle' ? 'rgba(231,236,242,0.6)' : color} letterSpacing="0.6" pointerEvents="none">{n.label}</text>
+              {s.toggles.ids && belowText && (
+                <text x={0} y={R + fs(17)} textAnchor="middle" className="tvalue"
+                  fontSize={fs(12)} fontWeight="500"
+                  fill={filled ? color : 'rgba(236,241,247,0.72)'} letterSpacing={fs(0.4)} pointerEvents="none">{belowText}</text>
               )}
-              {s.toggles.heuristics && h !== undefined && !compact && (
-                <text x={R + 7} y={-R + 1} className="tvalue" fontSize="9.5" fill="#FFCE85" pointerEvents="none">h {h}</text>
+
+              {/* Readable chips beside the node.
+                  Best-First: the guess it ranks by, and distance so far.
+                  Breadth-First: the ring (roads from the start) it is in,
+                  plus the landmark guess, greyed and dashed — on show, but
+                  visibly not part of the decision. */}
+              {showChips && !isBFS && h !== undefined && (
+                <g pointerEvents="none" transform={`translate(${R + fs(6)}, ${-R - fs(2)})`}>
+                  <rect x={0} y={0} width={fs(62)} height={fs(18)} rx={fs(3)}
+                    fill="rgba(0,0,0,0.92)" stroke="rgba(255,181,71,0.5)" strokeWidth={fs(1)} />
+                  <text x={fs(5)} y={fs(13)} className="tvalue no-halo" fontSize={fs(11)} fill="#FFCE85">
+                    {`${h} to go`}
+                  </text>
+                </g>
               )}
-              {g !== undefined && s.toggles.heuristics && !compact && (
-                <text x={R + 7} y={-R + 12} className="tvalue" fontSize="9" fill="rgba(67,217,232,0.75)" pointerEvents="none">g {g}</text>
+              {showChips && !isBFS && g !== undefined && (
+                <g pointerEvents="none" transform={`translate(${R + fs(6)}, ${-R + fs(18)})`}>
+                  <rect x={0} y={0} width={fs(62)} height={fs(18)} rx={fs(3)}
+                    fill="rgba(0,0,0,0.92)" stroke="rgba(67,217,232,0.42)" strokeWidth={fs(1)} />
+                  <text x={fs(5)} y={fs(13)} className="tvalue no-halo" fontSize={fs(11)} fill="#8FE4F0">
+                    {`${g} so far`}
+                  </text>
+                </g>
+              )}
+              {showChips && isBFS && rings.has(n.id) && (
+                <g pointerEvents="none" transform={`translate(${R + fs(6)}, ${-R - fs(2)})`}>
+                  <rect x={0} y={0} width={fs(54)} height={fs(18)} rx={fs(9)}
+                    fill="rgba(67,217,232,0.16)" stroke="rgba(67,217,232,0.6)" strokeWidth={fs(1)} />
+                  <text x={fs(27)} y={fs(13)} textAnchor="middle" className="tvalue no-halo" fontSize={fs(11)} fill="#9FEFF8">
+                    {`ring ${rings.get(n.id)}`}
+                  </text>
+                </g>
+              )}
+              {showChips && isBFS && h !== undefined && s.graph.landmarkIds.length > 0 && (
+                <g pointerEvents="none" opacity={0.75}
+                  transform={`translate(${R + fs(6)}, ${rings.has(n.id) ? -R + fs(18) : -R - fs(2)})`}>
+                  <rect x={0} y={0} width={fs(66)} height={fs(18)} rx={fs(3)}
+                    fill="rgba(0,0,0,0.85)" stroke="rgba(255,255,255,0.22)" strokeWidth={fs(1)} strokeDasharray={`${fs(3)} ${fs(2)}`} />
+                  <text x={fs(5)} y={fs(13)} className="tvalue no-halo" fontSize={fs(10.5)} fill="rgba(244,245,247,0.55)">
+                    {`guess ${h}`}
+                  </text>
+                </g>
+              )}
+
+              {!tight && isStart && (
+                <text x={0} y={-R - fs(13)} textAnchor="middle" className="tvalue"
+                  fontSize={fs(10.5)} fill="#43D9E8" letterSpacing={fs(1.2)} pointerEvents="none">START</text>
+              )}
+              {!tight && isGoal && (
+                <text x={0} y={-R - fs(13)} textAnchor="middle" className="tvalue"
+                  fontSize={fs(10.5)} fill="#72E6A1" letterSpacing={fs(1.2)} pointerEvents="none">DESTINATION</text>
+              )}
+              {!tight && isLandmark && s.toggles.landmarks && !isStart && !isGoal && (
+                <text x={0} y={-R - fs(13)} textAnchor="middle" className="tvalue"
+                  fontSize={fs(10.5)} fill="#C6B2FD" letterSpacing={fs(1.2)} pointerEvents="none">LANDMARK</text>
               )}
             </g>
           );
@@ -321,8 +439,8 @@ export default function GraphCanvas({ height, interactive = true, compact = fals
       {/* ── Empty state ─────────────────────────────────────────────────── */}
       {s.graph.nodes.length === 0 && (
         <g pointerEvents="none">
-          <text x={vb.x + vb.w / 2} y={vb.y + vb.h / 2 - 8} textAnchor="middle" className="tvalue" fontSize="15" fill="rgba(231,236,242,0.5)" letterSpacing="3">EMPTY WORKSPACE</text>
-          <text x={vb.x + vb.w / 2} y={vb.y + vb.h / 2 + 18} textAnchor="middle" className="tvalue" fontSize="11" fill="rgba(231,236,242,0.3)" letterSpacing="1.5">SELECT “ADD NODE” AND CLICK TO PLACE LOCATIONS</text>
+          <text x={vb.x + vb.w / 2} y={vb.y + vb.h / 2 - 10} textAnchor="middle" className="tvalue" fontSize="19" fill="rgba(236,241,247,0.6)" letterSpacing="3">NOTHING HERE YET</text>
+          <text x={vb.x + vb.w / 2} y={vb.y + vb.h / 2 + 22} textAnchor="middle" className="tvalue" fontSize="13" fill="rgba(236,241,247,0.4)" letterSpacing="1">CHOOSE “ADD PLACE”, THEN CLICK TO DROP ONE IN</text>
         </g>
       )}
     </svg>

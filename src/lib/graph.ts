@@ -192,20 +192,20 @@ export interface Validation { ok: boolean; errors: string[]; warnings: string[] 
 
 export function validateGraph(g: Graph): Validation {
   const errors: string[] = [], warnings: string[] = [];
-  if (g.nodes.length < 2) errors.push('The graph needs at least two nodes.');
-  if (!g.startId) errors.push('No start node selected.');
-  if (!g.goalId) errors.push('No destination node selected.');
-  if (g.startId && g.startId === g.goalId) errors.push('Start and destination must be different nodes.');
-  if (g.edges.length === 0 && g.nodes.length >= 2) errors.push('The graph has no edges.');
-  if (g.edges.some((e) => !(e.weight > 0))) errors.push('Every edge weight must be greater than zero.');
+  if (g.nodes.length < 2) errors.push('You need at least two places on the map.');
+  if (!g.startId) errors.push('No starting place chosen. Click a place, then press Start.');
+  if (!g.goalId) errors.push('No destination chosen. Click a place, then press End.');
+  if (g.startId && g.startId === g.goalId) errors.push('The start and the destination must be two different places.');
+  if (g.edges.length === 0 && g.nodes.length >= 2) errors.push('There are no roads yet. Use Add road to join two places.');
+  if (g.edges.some((e) => !(e.weight > 0))) errors.push('Every road must have a length greater than zero.');
 
-  if (!g.landmarkIds.length) warnings.push('No landmarks selected — the landmark heuristic falls back to h = 0.');
-  if (g.startId && g.landmarkIds.includes(g.startId)) warnings.push('The start node is also a landmark.');
+  if (!g.landmarkIds.length) warnings.push('No landmarks chosen, so the landmark guess has nothing to work from and returns 0 everywhere.');
+  if (g.startId && g.landmarkIds.includes(g.startId)) warnings.push('The starting place is also a landmark.');
   if (g.goalId && g.landmarkIds.includes(g.goalId)) {
-    warnings.push('The destination is a landmark, so its heuristic is exact — an unusually easy case.');
+    warnings.push('The destination is also a landmark, which makes every guess exact — an unusually easy case.');
   }
   const isolated = g.nodes.filter((n) => degree(g, n.id) === 0);
-  if (isolated.length) warnings.push(`${isolated.length} node(s) have no connections: ${isolated.map((n) => n.label).join(', ')}.`);
+  if (isolated.length) warnings.push(`${isolated.length} place(s) have no roads at all: ${isolated.map((n) => n.label).join(', ')}.`);
   return { ok: errors.length === 0, errors, warnings };
 }
 

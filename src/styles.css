@@ -15,18 +15,46 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ===========================================================================
+ * VISUAL LANGUAGE
+ *
+ * Modelled on the reference recording: a near-black page, monochrome
+ * chrome, large friendly headings, hairline rules instead of card borders,
+ * softly rounded panels, and a great deal of air.
+ *
+ * Colour is reserved almost entirely for the algorithm itself — the node
+ * states on the map and the few numbers that track them. Everywhere else the
+ * palette is black, white and grey, which is what makes the coloured parts
+ * read instantly.
+ * ========================================================================= */
+
 :root {
-  --obsidian: #090b0f;
-  --graphite: #11151b;
-  --charcoal: #181e26;
-  --elevated: #202833;
+  --obsidian: #000000;    /* page                                          */
+  --graphite: #0a0a0c;    /* section bands                                 */
+  --charcoal: #101013;    /* raised panel                                  */
+  --elevated: #17171b;    /* panel inside a panel                          */
+
+  /* Algorithm state colours — the only saturated hues in the interface. */
   --amber: #ffb547;
   --cyan: #43d9e8;
   --signal: #72e6a1;
   --violet: #a78bfa;
   --danger: #ff647c;
-  --grid: rgba(255, 255, 255, 0.045);
-  --grid-strong: rgba(67, 217, 232, 0.075);
+
+  --grid: rgba(255, 255, 255, 0.032);
+  --grid-strong: rgba(255, 255, 255, 0.055);
+
+  /* Text ramp. --ink-3 is the quietest level that still clears WCAG AA. */
+  --ink-1: #f4f5f7;
+  --ink-2: rgba(244, 245, 247, 0.80);
+  --ink-3: rgba(244, 245, 247, 0.58);
+  --ink-4: rgba(244, 245, 247, 0.40);
+
+  --hairline: rgba(255, 255, 255, 0.09);
+  --hairline-2: rgba(255, 255, 255, 0.14);
+
+  --radius-panel: 14px;
+  --radius-control: 10px;
 }
 
 * { -webkit-tap-highlight-color: transparent; }
@@ -38,19 +66,27 @@ html { scroll-behavior: smooth; overflow-x: clip; }
 body {
   margin: 0;
   background: var(--obsidian);
-  color: #e7ecf2;
+  color: var(--ink-2);
   font-family: Inter, system-ui, sans-serif;
-  font-weight: 350;
+  font-weight: 400;
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
   overflow-x: hidden;
 }
 
 @layer base {
-  h1, h2, h3, h4 { font-family: 'Space Grotesk', system-ui, sans-serif; font-weight: 600; letter-spacing: -0.02em; }
+  h1, h2, h3, h4 {
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    color: var(--ink-1);
+  }
+  p { color: var(--ink-2); }
 }
 
-/* ── Skip link: focusable, off-screen until focused, no negative margin
-      (which would widen the document by 1px) ─────────────────────── */
+/* ── Skip link ────────────────────────────────────────────── */
 .skip-link {
   position: fixed;
   top: 8px;
@@ -59,151 +95,165 @@ body {
   transform: translateY(-250%);
   transition: transform .18s ease-out;
 }
-.skip-link:focus-visible, .skip-link:focus {
-  transform: translateY(0);
-}
+.skip-link:focus-visible, .skip-link:focus { transform: translateY(0); }
 
-/* ── Technical blueprint grid ─────────────────────────────── */
+/* ── Faint grid, used only behind the hero ────────────────── */
 .blueprint {
   background-image:
     linear-gradient(to right, var(--grid) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--grid) 1px, transparent 1px),
-    linear-gradient(to right, var(--grid-strong) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--grid-strong) 1px, transparent 1px);
-  background-size: 28px 28px, 28px 28px, 140px 140px, 140px 140px;
+    linear-gradient(to bottom, var(--grid) 1px, transparent 1px);
+  background-size: 64px 64px, 64px 64px;
 }
-
 .blueprint-fade {
-  mask-image: radial-gradient(ellipse 110% 85% at 50% 0%, #000 35%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 110% 85% at 50% 0%, #000 35%, transparent 100%);
+  mask-image: radial-gradient(ellipse 100% 80% at 50% 0%, #000 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 100% 80% at 50% 0%, #000 30%, transparent 100%);
 }
 
-/* ── Panels: precision-engineered rectangles ──────────────── */
+/* ── Panels ───────────────────────────────────────────────── */
+/* A panel is a soft, barely-lighter rectangle with a hairline edge — not a
+   bordered card. Depth comes from the fill, never from a drop shadow. */
 .panel {
-  background: linear-gradient(180deg, rgba(32, 40, 51, 0.62) 0%, rgba(17, 21, 27, 0.78) 100%);
-  border: 1px solid var(--hairline, rgba(255, 255, 255, 0.08));
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.022);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-panel);
   position: relative;
 }
 .panel-glass {
-  background: linear-gradient(180deg, rgba(32, 40, 51, 0.5) 0%, rgba(9, 11, 15, 0.72) 100%);
-  backdrop-filter: blur(18px) saturate(130%);
-  -webkit-backdrop-filter: blur(18px) saturate(130%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
-  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.055);
+  background: rgba(255, 255, 255, 0.035);
+  backdrop-filter: blur(20px) saturate(120%);
+  -webkit-backdrop-filter: blur(20px) saturate(120%);
+  border: 1px solid var(--hairline-2);
+  border-radius: var(--radius-panel);
 }
 
-/* corner registration ticks */
-.ticks::before, .ticks::after {
-  content: '';
-  position: absolute;
-  width: 9px; height: 9px;
-  border-color: rgba(67, 217, 232, 0.5);
-  pointer-events: none;
-}
-.ticks::before { top: 0; left: 0; border-top: 1px solid; border-left: 1px solid; }
-.ticks::after { bottom: 0; right: 0; border-bottom: 1px solid; border-right: 1px solid; }
+/* The old engineering corner-ticks are deliberately retired: the reference
+   has no such ornament. Kept as a no-op so call sites need no edit. */
+.ticks::before, .ticks::after { content: none; }
 
-.hairline-t { border-top: 1px solid rgba(255, 255, 255, 0.08); }
-.hairline-b { border-bottom: 1px solid rgba(255, 255, 255, 0.08); }
+.hairline-t { border-top: 1px solid var(--hairline); }
+.hairline-b { border-bottom: 1px solid var(--hairline); }
 
-/* ── Technical labels ─────────────────────────────────────── */
+/* ── Labels ───────────────────────────────────────────────── */
+/* The reference labels its data in sentence case, in the body face, in grey
+   — "Live Visitors", "Bounce Rate". Far easier to read than small uppercase
+   monospace, which matters most for the beginners this is built for. */
 .tlabel {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: rgba(231, 236, 242, 0.45);
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-3);
 }
-.tvalue { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
+/* Numbers, node names, code: anything that should align in a column. */
+.tvalue {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+/* The stat pattern from the reference: grey caption, large bold value. */
+.stat-label { font-size: 13.5px; color: var(--ink-3); line-height: 1.3; }
+.stat-value { font-size: 30px; font-weight: 600; color: var(--ink-1); line-height: 1.1; letter-spacing: -0.03em; }
 
-/* ── Bottom sheet: must be opaque, or the page behind bleeds through ── */
+.term-plain { font-size: 15px; line-height: 1.3; color: var(--ink-1); }
+.term-tech { font-size: 12.5px; color: var(--ink-4); letter-spacing: 0; }
+
+/* ── Bottom sheet ─────────────────────────────────────────── */
 .sheet {
-  background: #0c1016;
-  border-top: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 -18px 50px -20px rgba(0, 0, 0, 0.95);
+  background: #08080a;
+  border-top: 1px solid var(--hairline-2);
+  border-radius: 16px 16px 0 0;
 }
 @supports (backdrop-filter: blur(10px)) {
   .sheet {
-    background: rgba(12, 16, 22, 0.97);
-    backdrop-filter: blur(22px) saturate(130%);
-    -webkit-backdrop-filter: blur(22px) saturate(130%);
+    background: rgba(8, 8, 10, 0.97);
+    backdrop-filter: blur(24px) saturate(120%);
+    -webkit-backdrop-filter: blur(24px) saturate(120%);
   }
 }
 
 /* ── Controls ─────────────────────────────────────────────── */
+/* Secondary: soft grey fill, no border. Primary: a white pill. Both taken
+   straight from the reference navigation. */
 .btn {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  padding: 9px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 2px;
-  background: rgba(32, 40, 51, 0.55);
-  color: #d8e0ea;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  padding: 10px 18px;
+  min-height: 40px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--ink-1);
   cursor: pointer;
-  transition: border-color .18s, background .18s, color .18s, box-shadow .18s, transform .12s;
-  display: inline-flex; align-items: center; gap: 7px;
+  transition: background .18s ease, color .18s ease, opacity .18s ease, transform .12s ease;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   white-space: nowrap;
 }
-.btn:hover:not(:disabled) { border-color: rgba(67, 217, 232, 0.55); color: #fff; background: rgba(67, 217, 232, 0.08); }
+.btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
 .btn:active:not(:disabled) { transform: translateY(1px); }
 .btn:disabled { opacity: 0.32; cursor: not-allowed; }
+
 .btn-primary {
-  background: linear-gradient(180deg, rgba(255, 181, 71, 0.2), rgba(255, 181, 71, 0.07));
-  border-color: rgba(255, 181, 71, 0.5); color: #ffd79a;
+  background: #ffffff;
+  color: #0a0a0c;
+  font-weight: 600;
 }
-.btn-primary:hover:not(:disabled) { border-color: var(--amber); background: rgba(255, 181, 71, 0.18); color: #fff3df; box-shadow: 0 0 22px -6px rgba(255, 181, 71, 0.5); }
-.btn-active { border-color: rgba(67, 217, 232, 0.75); color: #baf4fb; background: rgba(67, 217, 232, 0.14); box-shadow: inset 0 0 18px -8px rgba(67, 217, 232, 0.8); }
-.btn-danger:hover:not(:disabled) { border-color: rgba(255, 100, 124, 0.6); color: #ffc3cd; background: rgba(255, 100, 124, 0.1); }
+.btn-primary:hover:not(:disabled) { background: #e9eaec; }
+
+.btn-active {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+.btn-danger { color: #ffb3bf; }
+.btn-danger:hover:not(:disabled) { background: rgba(255, 100, 124, 0.16); color: #ffd3da; }
+
+.btn-lg { font-size: 15px; padding: 13px 24px; min-height: 48px; }
 
 :where(button, a, input, select, [tabindex]):focus-visible {
-  outline: 1px solid var(--cyan);
+  outline: 2px solid #ffffff;
   outline-offset: 2px;
 }
 
 input[type='text'], input[type='number'], select {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  font-size: 12px;
-  background: rgba(9, 11, 15, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 2px;
-  padding: 7px 9px;
-  color: #e7ecf2;
+  font-family: Inter, system-ui, sans-serif;
+  font-size: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-control);
+  padding: 10px 12px;
+  color: var(--ink-1);
   width: 100%;
 }
-input:focus, select:focus { border-color: rgba(67, 217, 232, 0.6); }
+input:focus, select:focus { border-color: rgba(255, 255, 255, 0.3); outline: none; }
 
-input[type='range'] { -webkit-appearance: none; appearance: none; height: 3px; background: rgba(255,255,255,0.14); border-radius: 2px; width: 100%; }
-input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; width: 13px; height: 13px; border-radius: 1px; background: var(--amber); border: 1px solid rgba(0,0,0,0.6); cursor: pointer; }
-input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border-radius: 1px; background: var(--amber); border: none; cursor: pointer; }
+input[type='range'] { -webkit-appearance: none; appearance: none; height: 4px; background: rgba(255,255,255,0.14); border-radius: 999px; width: 100%; }
+input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #fff; border: none; cursor: pointer; }
+input[type='range']::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: #fff; border: none; cursor: pointer; }
 
 /* ── Scrollbars ───────────────────────────────────────────── */
-.scroll-tech::-webkit-scrollbar { width: 7px; height: 7px; }
-.scroll-tech::-webkit-scrollbar-track { background: rgba(0, 0, 0, 0.3); }
-.scroll-tech::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.16); border-radius: 0; }
-.scroll-tech::-webkit-scrollbar-thumb:hover { background: rgba(67, 217, 232, 0.4); }
-.scroll-tech { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) rgba(0,0,0,0.3); }
+.scroll-tech::-webkit-scrollbar { width: 8px; height: 8px; }
+.scroll-tech::-webkit-scrollbar-track { background: transparent; }
+.scroll-tech::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 999px; }
+.scroll-tech::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.26); }
+.scroll-tech { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.16) transparent; }
 
-/* ── Scanning line ────────────────────────────────────────── */
-.scan::after {
-  content: '';
-  position: absolute; inset: 0;
-  background: linear-gradient(180deg, transparent, rgba(67, 217, 232, 0.055) 48%, transparent);
-  height: 4%;
-  animation: scanline 9s linear infinite;
-  pointer-events: none;
+/* The reference fades long content out at the panel edge rather than
+   clipping it against a hard border. */
+.fade-r {
+  mask-image: linear-gradient(to right, #000 82%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 82%, transparent 100%);
 }
 
-.glow-cyan { box-shadow: 0 0 30px -12px rgba(67, 217, 232, 0.55); }
-.text-glow-amber { text-shadow: 0 0 26px rgba(255, 181, 71, 0.45); }
+.scan::after { content: none; }
+.glow-cyan { box-shadow: none; }
+.text-glow-amber { text-shadow: none; }
 
-.formula-text {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-}
+.formula-text { overflow-wrap: anywhere; word-break: break-word; }
 
 /* Grid and flex children default to min-width:auto, which lets a wide child
    stretch its track past the viewport. Opt every layout child out. */
@@ -211,21 +261,25 @@ input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border-radius
 
 /* SVG defaults to transform-box: view-box, which would scale this ring about
    the centre of the whole canvas and fling it away from its node. */
-.pulse-ring {
-  transform-box: fill-box;
-  transform-origin: center;
-}
+.pulse-ring { transform-box: fill-box; transform-origin: center; }
 
 .graph-canvas { touch-action: none; }
 .graph-canvas text { user-select: none; -webkit-user-select: none; }
-/* Dark halo so node labels stay readable where they cross edges. */
+/* Dark halo so labels stay readable where they cross a road. */
 .graph-canvas text, .node-label {
   paint-order: stroke fill;
-  stroke: rgba(9, 11, 15, 0.85);
-  stroke-width: 3px;
+  stroke: rgba(0, 0, 0, 0.92);
+  stroke-width: 3.5px;
   stroke-linejoin: round;
 }
 .graph-canvas text.no-halo { stroke: none; }
+.graph-canvas text.in-node { stroke: none; }
+
+/* Nodes and roads ease between search states instead of snapping, which is
+   what makes a step legible when the animation runs quickly. */
+.node-body, .edge-line {
+  transition: fill .34s cubic-bezier(.4,0,.2,1), stroke .34s cubic-bezier(.4,0,.2,1), stroke-width .34s cubic-bezier(.4,0,.2,1);
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
@@ -234,5 +288,4 @@ input[type='range']::-moz-range-thumb { width: 13px; height: 13px; border-radius
     transition-duration: 0.001ms !important;
     scroll-behavior: auto !important;
   }
-  .scan::after { display: none; }
 }

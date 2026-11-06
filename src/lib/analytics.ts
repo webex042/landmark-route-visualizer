@@ -6,7 +6,7 @@
 
 import { Graph, labelOf } from './graph';
 import { SearchResult, formatDuration } from './searchEngine';
-import { HeuristicKind, HEURISTIC_META } from './heuristics';
+import { HEURISTIC_META } from './heuristics';
 
 export interface MetricRow { label: string; value: string; hint?: string; accent?: string }
 
